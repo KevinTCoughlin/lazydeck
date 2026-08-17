@@ -18,10 +18,9 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: gofmt -l . | tee /tmp/gofmt.out && test ! -s /tmp/gofmt.out
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
-          install-mode: goinstall
+          version: v2.12
 
   python:
     runs-on: macos-latest
