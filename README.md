@@ -49,6 +49,14 @@ step once this sees more than personal use; it would need to decide how to
 bundle or document the Python half, since Homebrew formulae don't manage
 `uv` environments directly.)
 
+Alternatively, `install.sh` automates the above (downloads the right
+archive for your OS/arch, installs the binary to `~/.local/bin`, and copies
+`python/` to `~/.local/share/lazydeck/python`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kevintcoughlin/lazydeck/main/install.sh | bash
+```
+
 ## Setup
 
 ```bash
