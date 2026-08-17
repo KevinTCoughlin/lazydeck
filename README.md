@@ -52,6 +52,15 @@ name = "steam-deck"
 machine = "steamdeck.local"
 ```
 
+Don't know the Deck's IP yet? Find it via mDNS/Bonjour (works once the Deck
+is on the same Wi-Fi and Developer Mode pairing is enabled):
+
+```bash
+just cli discover --timeout 5
+```
+
+or press `f` inside the running TUI.
+
 Then run:
 
 ```bash
@@ -79,6 +88,8 @@ just clean      # remove the built binary and __pycache__ dirs
 | `d`       | deploy — prompts for gameid, then local build directory      |
 | `l`       | sync-logs — prompts for gameid, then local directory to save |
 | `x`       | delete a previously deployed title — prompts for gameid      |
+| `g`       | list games currently deployed on the selected device          |
+| `f`       | find devkits on the LAN via mDNS/Bonjour (~4s scan)          |
 | `enter`   | open a real interactive `ssh` shell on the selected device    |
 | `esc`     | cancel an in-progress prompt                                 |
 | `q`       | quit                                                         |

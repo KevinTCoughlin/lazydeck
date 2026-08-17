@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,6 +26,7 @@ VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 sys.path.insert(0, str(VENDOR_DIR))
 
 import devkit_client as dk  # noqa: E402  (path must be set up first)
+import devkit_client.zeroconf as zeroconf  # noqa: E402
 
 
 class NullSignal:
@@ -89,9 +92,13 @@ def cmd_list_games(args: argparse.Namespace) -> None:
 
 
 def cmd_deploy(args: argparse.Namespace) -> None:
+    directory = Path(args.directory).expanduser()
+    if not directory.is_dir():
+        raise ValueError(f"--directory {args.directory!r} does not exist or is not a directory")
+
     ns = _machine_args(args.machine, args.login)
     ns.name = args.name
-    ns.directory = args.directory
+    ns.directory = str(directory)
     ns.delete_extraneous = args.delete_extraneous
     ns.skip_newer_files = False
     ns.verify_checksums = False
@@ -105,7 +112,7 @@ def cmd_deploy(args: argparse.Namespace) -> None:
     ns.deps = None
     ns.cancel_signal = NullSignal()
     dk.new_or_ensure_game(ns)
-    emit(True, {"deployed": args.name, "directory": args.directory})
+    emit(True, {"deployed": args.name, "directory": str(directory)})
 
 
 def cmd_delete(args: argparse.Namespace) -> None:
@@ -116,11 +123,14 @@ def cmd_delete(args: argparse.Namespace) -> None:
 
 
 def cmd_sync_logs(args: argparse.Namespace) -> None:
+    directory = Path(args.directory).expanduser()
+    directory.mkdir(parents=True, exist_ok=True)
+
     ns = _machine_args(args.machine, args.login)
     ns.name = args.name
-    ns.directory = args.directory
+    ns.directory = str(directory)
     dk.sync_logs(ns)
-    emit(True, {"synced_to": args.directory})
+    emit(True, {"synced_to": str(directory)})
 
 
 def cmd_shell_command(args: argparse.Namespace) -> None:
@@ -129,6 +139,34 @@ def cmd_shell_command(args: argparse.Namespace) -> None:
     ssh = dk._open_ssh_for_args(ns)
     out_text, err_text, exit_status = dk._simple_ssh(ssh, args.cmd, silent=True)
     emit(True, {"stdout": out_text, "stderr": err_text, "exit_status": exit_status})
+
+
+def cmd_discover(args: argparse.Namespace) -> None:
+    """Browse mDNS/Bonjour for `_steamos-devkit._tcp.local.` services and
+    report what's found within --timeout seconds. Useful to find a devkit's
+    address/service-name without knowing its IP ahead of time (e.g. right
+    after connecting a Steam Deck to the same Wi-Fi network)."""
+    zc = zeroconf.Zeroconf()
+    try:
+        listener = dk.ServiceListener(zc)
+        zeroconf.ServiceBrowser(zc, dk.STEAM_DEVKIT_TYPE, listener)
+        time.sleep(args.timeout)
+
+        found = []
+        for name, info in listener.devkits.items():
+            address = listener.address_for_service(name)
+            found.append({
+                "name": name,
+                "address": address,
+                "port": listener.port_for_service(name),
+            })
+        emit(True, found)
+    finally:
+        # ServiceListener() sets a module-level singleton; clear it so a
+        # second `discover` call in the same interpreter (unlikely, since
+        # cli.py is invoked fresh per-command, but defensive) doesn't assert.
+        dk.g_zeroconf_listener = None
+        zc.close()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -164,10 +202,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("run", cmd_shell_command)
     sp.add_argument("--cmd", required=True, help="remote shell command to execute")
 
+    sp = sub.add_parser("discover", help="browse mDNS for devkits on the LAN")
+    sp.add_argument("--timeout", type=float, default=4.0, help="seconds to listen (default: 4)")
+    sp.set_defaults(func=cmd_discover)
+
     return p
 
 
 def main(argv=None) -> int:
+    logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
     args = build_parser().parse_args(argv)
     try:
         args.func(args)

@@ -122,6 +122,34 @@ func (c *Client) Register(ctx context.Context, machine string) error {
 	return err
 }
 
+// DiscoveredDevice is one devkit found via mDNS/Bonjour browsing.
+type DiscoveredDevice struct {
+	Name    string `json:"name"`
+	Address string `json:"address"`
+	Port    int    `json:"port"`
+}
+
+// Discover browses `_steamos-devkit._tcp.local.` for the given duration and
+// returns whatever devkits announced themselves on the LAN in that window.
+// Useful for finding a Steam Deck's address without knowing it ahead of
+// time, e.g. right after joining the same Wi-Fi network.
+func (c *Client) Discover(ctx context.Context, timeout time.Duration) ([]DiscoveredDevice, error) {
+	seconds := timeout.Seconds()
+	discoverer := *c
+	if buffer := timeout + 15*time.Second; buffer > discoverer.Timeout {
+		discoverer.Timeout = buffer
+	}
+	data, err := discoverer.run(ctx, "discover", "--timeout", fmt.Sprintf("%.1f", seconds))
+	if err != nil {
+		return nil, err
+	}
+	var found []DiscoveredDevice
+	if err := json.Unmarshal(data, &found); err != nil {
+		return nil, err
+	}
+	return found, nil
+}
+
 // Status is the parsed output of `steamos-get-status --json` on the devkit.
 type Status struct {
 	Raw map[string]any

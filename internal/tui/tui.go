@@ -148,6 +148,35 @@ func deleteCmd(cli *client.Client, index int, dev config.Device, name string) te
 	}
 }
 
+type listGamesResultMsg struct {
+	index int
+	games []any
+	err   error
+}
+
+func listGamesCmd(cli *client.Client, index int, dev config.Device) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		games, err := cli.ListGames(ctx, dev.Machine, dev.Login)
+		return listGamesResultMsg{index: index, games: games, err: err}
+	}
+}
+
+type discoverResultMsg struct {
+	found []client.DiscoveredDevice
+	err   error
+}
+
+func discoverCmd(cli *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		found, err := cli.Discover(ctx, 4*time.Second)
+		return discoverResultMsg{found: found, err: err}
+	}
+}
+
 // connInfoMsg carries the resolved SSH login/address/key so we can exec a
 // real interactive `ssh` process for the remote-shell keybinding.
 type connInfoMsg struct {
@@ -233,6 +262,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.log = append(m.log, fmt.Sprintf("%s: shell closed", name))
 		}
 		return m, nil
+
+	case listGamesResultMsg:
+		m.devices[msg.index].busy = false
+		name := m.devices[msg.index].dev.Name
+		if msg.err != nil {
+			m.log = append(m.log, fmt.Sprintf("%s: list-games FAILED: %v", name, msg.err))
+			return m, nil
+		}
+		if len(msg.games) == 0 {
+			m.log = append(m.log, fmt.Sprintf("%s: no games deployed", name))
+			return m, nil
+		}
+		m.log = append(m.log, fmt.Sprintf("%s: %d game(s):", name, len(msg.games)))
+		for _, g := range msg.games {
+			m.log = append(m.log, "  - "+fmt.Sprint(g))
+		}
+		return m, nil
+
+	case discoverResultMsg:
+		if msg.err != nil {
+			m.log = append(m.log, fmt.Sprintf("discover FAILED: %v", msg.err))
+			return m, nil
+		}
+		if len(msg.found) == 0 {
+			m.log = append(m.log, "discover: no devkits announced themselves on the LAN")
+			return m, nil
+		}
+		for _, d := range msg.found {
+			m.log = append(m.log, fmt.Sprintf("discover: found %q at %s:%d — add it to devices.toml", d.Name, d.Address, d.Port))
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -277,6 +337,17 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		return m.startPrompt(promptDeleteName, "gameid to delete: "), nil
+	case "g":
+		if len(m.devices) == 0 {
+			break
+		}
+		d := m.devices[m.cursor]
+		m.devices[m.cursor].busy = true
+		m.log = append(m.log, fmt.Sprintf("listing games on %s ...", d.dev.Name))
+		return m, listGamesCmd(m.cli, m.cursor, d.dev)
+	case "f":
+		m.log = append(m.log, "discovering devkits on the LAN (mDNS, ~4s)...")
+		return m, discoverCmd(m.cli)
 	case "enter":
 		if len(m.devices) == 0 {
 			break
@@ -402,7 +473,7 @@ func (m Model) View() string {
 		return b.String()
 	}
 
-	b.WriteString("\n" + helpStyle.Render("↑/↓ select · s refresh · r register · d deploy · l sync-logs · x delete · enter shell · q quit"))
+	b.WriteString("\n" + helpStyle.Render("↑/↓ select · s refresh · r register · d deploy · l sync-logs · x delete · g games · f find (mDNS) · enter shell · q quit"))
 	return b.String()
 }
 
