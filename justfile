@@ -27,11 +27,13 @@ run: build
 test:
     go test ./...
 
-# gofmt + go vet + python py_compile, mirroring what CI/reviewers expect.
+# Full lint pass: golangci-lint (falls back to go vet if not installed),
+# ruff (falls back to py_compile if not installed), plus gofmt.
 lint:
     gofmt -l .
-    go vet ./...
-    python3 -m py_compile {{python_dir}}/cli.py {{python_dir}}/vendor/devkit_client/__init__.py
+    if command -v golangci-lint >/dev/null; then golangci-lint run ./...; else go vet ./...; fi
+    if command -v ruff >/dev/null; then ruff check {{python_dir}}/cli.py; else python3 -m py_compile {{python_dir}}/cli.py; fi
+    python3 -m py_compile {{python_dir}}/vendor/devkit_client/__init__.py
 
 # Run the headless python CLI directly, e.g.:
 #   just cli status --machine 192.168.1.50

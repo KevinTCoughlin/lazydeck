@@ -12,3 +12,14 @@ dependencies = [
 
 [tool.uv]
 package = false
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+# cli.py inserts vendor/ onto sys.path before importing from it, so those
+# imports can't be at the top of the file (E402) — that's intentional, not
+# a mistake to fix.
+per-file-ignores = { "cli.py" = ["E402"] }

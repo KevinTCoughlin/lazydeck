@@ -23,10 +23,14 @@ managing several paired devices from one view. This project:
 
 ## Requirements
 
-- Go 1.23+
+- Go 1.25+
 - [`uv`](https://docs.astral.sh/uv/) (manages the Python 3.10+ venv/deps for you)
 - [`just`](https://github.com/casey/just) task runner
 - `ssh`/`rsync` available on your machine (standard on macOS)
+- optional but recommended: [`golangci-lint`](https://golangci-lint.run/) and
+  [`ruff`](https://docs.astral.sh/ruff/) (`brew install golangci-lint ruff`)
+  — `just lint` uses them automatically if present, otherwise falls back to
+  `go vet`/`py_compile`.
 
 ## Setup
 

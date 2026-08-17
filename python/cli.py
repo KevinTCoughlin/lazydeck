@@ -25,8 +25,8 @@ from types import SimpleNamespace
 VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 sys.path.insert(0, str(VENDOR_DIR))
 
-import devkit_client as dk  # noqa: E402  (path must be set up first)
-import devkit_client.zeroconf as zeroconf  # noqa: E402
+import devkit_client as dk
+from devkit_client import zeroconf
 
 
 class NullSignal:
@@ -153,7 +153,7 @@ def cmd_discover(args: argparse.Namespace) -> None:
         time.sleep(args.timeout)
 
         found = []
-        for name, info in listener.devkits.items():
+        for name in listener.devkits.keys():
             address = listener.address_for_service(name)
             found.append({
                 "name": name,
