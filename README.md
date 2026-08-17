@@ -100,6 +100,30 @@ Then run:
 just run    # builds (if needed) and launches the TUI
 ```
 
+### Recording a real-device demo
+
+From the repository root, with a paired Deck configured in
+`~/.config/lazydeck/devices.toml`, record a 100×30 terminal session with:
+
+```bash
+mkdir -p recordings && asciinema rec --overwrite --cols 100 --rows 30 \
+  --title "lazydeck Steam Deck demo" --command "just run" \
+  recordings/lazydeck-steam-deck.cast
+```
+
+Use this non-destructive sequence (wait for each refresh to finish):
+
+1. `s` — refresh the configured device status.
+2. `?`, then any key — show and close the keybinding help.
+3. `g` — list deployed games.
+4. `f` — run LAN discovery and show the result in the log.
+5. `q` — quit and let asciinema save the recording.
+
+Before sharing, inspect the cast for hostnames, IP addresses, usernames, game
+IDs, paths, or error text. Use a sanitized `name` in `devices.toml`, do not
+press `d`, `x`, or `enter` during the demo, and remove the local cast if it
+contains private output. Recordings under `recordings/` are ignored by git.
+
 ### Other recipes
 
 ```bash
