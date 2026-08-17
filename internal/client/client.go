@@ -1,0 +1,193 @@
+// Package client shells out to the vendored Python devkit CLI (python/cli.py)
+// via `uv run`, so devkit-tui never has to reimplement steamos-devkit's
+// pairing / SSH / rsync protocol in Go. Each call returns a decoded JSON
+// envelope: {"ok": bool, "data": any, "error": string}.
+package client
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"time"
+)
+
+// Client drives the headless Python CLI for one devkit-tui process.
+type Client struct {
+	PythonDir string // directory containing pyproject.toml + cli.py
+	Timeout   time.Duration
+}
+
+type envelope struct {
+	OK    bool            `json:"ok"`
+	Data  json.RawMessage `json:"data"`
+	Error string          `json:"error"`
+}
+
+// New locates the vendored python/ directory, preferring $DEVKIT_TUI_PYTHON_DIR,
+// then a "python" sibling of the running binary (installed layout), then a
+// "python" sibling found by walking up from the current source file (dev
+// layout, i.e. running via `go run ./cmd/devkit-tui` inside the repo).
+func New() (*Client, error) {
+	if dir := os.Getenv("DEVKIT_TUI_PYTHON_DIR"); dir != "" {
+		return &Client{PythonDir: dir, Timeout: 60 * time.Second}, nil
+	}
+
+	if exe, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "python")
+		if isPythonDir(candidate) {
+			return &Client{PythonDir: candidate, Timeout: 60 * time.Second}, nil
+		}
+	}
+
+	// Dev layout: running via `go run ./cmd/devkit-tui` inside the repo.
+	// runtime.Caller(0) resolves to this source file's compile-time path,
+	// so we can walk internal/client/client.go -> repo root -> python/.
+	if _, thisFile, _, ok := runtime.Caller(0); ok {
+		candidate := filepath.Join(filepath.Dir(thisFile), "..", "..", "python")
+		if isPythonDir(candidate) {
+			return &Client{PythonDir: candidate, Timeout: 60 * time.Second}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("could not locate the python/ directory; set DEVKIT_TUI_PYTHON_DIR")
+}
+
+func isPythonDir(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, "cli.py"))
+	return err == nil
+}
+
+// run invokes `uv run --project PythonDir python cli.py <args...>` and
+// decodes the JSON envelope it prints on stdout.
+func (c *Client) run(ctx context.Context, args ...string) (json.RawMessage, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	defer cancel()
+
+	full := append([]string{"run", "--project", c.PythonDir, "python", "cli.py"}, args...)
+	cmd := exec.CommandContext(ctx, "uv", full...)
+	cmd.Dir = c.PythonDir
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+
+	var env envelope
+	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &env); err != nil {
+		if runErr != nil {
+			return nil, fmt.Errorf("uv run failed: %w\nstderr: %s", runErr, stderr.String())
+		}
+		return nil, fmt.Errorf("could not parse cli.py output: %w\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
+	}
+	if !env.OK {
+		return nil, fmt.Errorf("%s", env.Error)
+	}
+	return env.Data, nil
+}
+
+// Register pairs this workstation's SSH key with the given machine.
+func (c *Client) Register(ctx context.Context, machine string) error {
+	_, err := c.run(ctx, "register", "--machine", machine)
+	return err
+}
+
+// Status is the parsed output of `steamos-get-status --json` on the devkit.
+type Status struct {
+	Raw map[string]any
+}
+
+func (c *Client) Status(ctx context.Context, machine, login string) (*Status, error) {
+	args := []string{"status", "--machine", machine}
+	if login != "" {
+		args = append(args, "--login", login)
+	}
+	data, err := c.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return &Status{Raw: m}, nil
+}
+
+// ListGames returns the games currently installed on the target devkit.
+func (c *Client) ListGames(ctx context.Context, machine, login string) ([]any, error) {
+	args := []string{"list-games", "--machine", machine}
+	if login != "" {
+		args = append(args, "--login", login)
+	}
+	data, err := c.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var games []any
+	if err := json.Unmarshal(data, &games); err != nil {
+		return nil, err
+	}
+	return games, nil
+}
+
+// Deploy rsyncs a local build directory to the devkit and registers it as a
+// launchable Steam shortcut named gameID.
+func (c *Client) Deploy(ctx context.Context, machine, login, gameID, directory string, deleteExtraneous bool) error {
+	args := []string{"deploy", "--machine", machine, "--name", gameID, "--directory", directory}
+	if login != "" {
+		args = append(args, "--login", login)
+	}
+	if deleteExtraneous {
+		args = append(args, "--delete-extraneous")
+	}
+	_, err := c.run(ctx, args...)
+	return err
+}
+
+// Delete removes a previously deployed title from the devkit.
+func (c *Client) Delete(ctx context.Context, machine, login, gameID string) error {
+	args := []string{"delete", "--machine", machine, "--name", gameID}
+	if login != "" {
+		args = append(args, "--login", login)
+	}
+	_, err := c.run(ctx, args...)
+	return err
+}
+
+// SyncLogs pulls a title's logs down into a local directory.
+func (c *Client) SyncLogs(ctx context.Context, machine, login, gameID, directory string) error {
+	args := []string{"sync-logs", "--machine", machine, "--name", gameID, "--directory", directory}
+	if login != "" {
+		args = append(args, "--login", login)
+	}
+	_, err := c.run(ctx, args...)
+	return err
+}
+
+// RunCommand executes a single non-interactive command over SSH on the devkit.
+type CommandResult struct {
+	Stdout     string `json:"stdout"`
+	Stderr     string `json:"stderr"`
+	ExitStatus int    `json:"exit_status"`
+}
+
+func (c *Client) RunCommand(ctx context.Context, machine, login, remoteCmd string) (*CommandResult, error) {
+	args := []string{"run", "--machine", machine, "--cmd", remoteCmd}
+	if login != "" {
+		args = append(args, "--login", login)
+	}
+	data, err := c.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var res CommandResult
+	if err := json.Unmarshal(data, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}

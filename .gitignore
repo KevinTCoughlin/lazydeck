@@ -1,0 +1,7 @@
+/devkit-tui
+python/.venv/
+python/vendor/devkit_client/**/__pycache__/
+**/__pycache__/
+*.pyc
+**/__pycache__/
+*.pyc

@@ -1,0 +1,14 @@
+[project]
+name = "devkit-cli"
+version = "0.1.0"
+description = "Headless CLI wrapper around Valve's steamos-devkit client library, driven by devkit-tui."
+requires-python = ">=3.10"
+dependencies = [
+    "paramiko>=3.4",
+    "appdirs>=1.4",
+    "signalslot>=0.2",
+    "ifaddr>=0.2",
+]
+
+[tool.uv]
+package = false
