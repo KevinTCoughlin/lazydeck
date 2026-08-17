@@ -1,0 +1,55 @@
+# goreleaser config for lazydeck: builds cross-platform CLI/TUI binaries
+# on tag push (see .github/workflows/release.yml). Only the Go binary is
+# packaged here — the Python half (uv + vendored devkit_client) is a
+# separate runtime dependency, documented in README.md, until Phase 5's
+# packaging story settles on how to bundle it.
+version: 2
+
+project_name: lazydeck
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: lazydeck
+    main: ./cmd/lazydeck
+    binary: lazydeck
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: lazydeck
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+      - justfile
+      # Ship the Python half alongside the binary so `LAZYDECK_PYTHON_DIR`
+      # can point at it without a separate clone; users still need `uv`
+      # installed and must run `uv sync` once inside python/.
+      - python/**/*
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+release:
+  github:
+    owner: kevintcoughlin
+    name: lazydeck

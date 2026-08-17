@@ -32,6 +32,23 @@ managing several paired devices from one view. This project:
   — `just lint` uses them automatically if present, otherwise falls back to
   `go vet`/`py_compile`.
 
+## Installing a pre-built release
+
+Tagged releases (`v*`) are built for macOS and Linux (amd64/arm64) via
+[goreleaser](https://goreleaser.com/) — see
+[Releases](https://github.com/kevintcoughlin/lazydeck/releases). Each
+archive bundles the `lazydeck` binary alongside `python/` so you don't need
+to clone the repo, but you still need `uv` installed locally and must run
+`uv sync --project python` once after extracting, since the Python
+dependencies (`paramiko` et al.) aren't vendored into the binary.
+
+There's no Homebrew tap yet — for now, download + extract a release
+archive, run `uv sync --project python`, and put the `lazydeck` binary on
+your `PATH`. (A `kevintcoughlin/homebrew-lazydeck` tap is a natural next
+step once this sees more than personal use; it would need to decide how to
+bundle or document the Python half, since Homebrew formulae don't manage
+`uv` environments directly.)
+
 ## Setup
 
 ```bash
@@ -116,8 +133,66 @@ uv run --project python python cli.py <subcommand> --machine <host> [...]
 `cli.py` imports the vendored `devkit_client` package and calls the same
 functions Valve's GUI calls (`register`, `steamos_get_status`, `list_games`,
 `new_or_ensure_game`, `sync_logs`, `delete_title`), each wrapped to emit a
-single JSON envelope (`{"ok": true, "data": ...}` or `{"ok": false, "error": ...}`)
-that the Go side parses.
+single JSON envelope (`{"ok": true, "data": ...}` or
+`{"ok": false, "error": ..., "error_kind": ...}`) that the Go side parses.
+
+### Architecture
+
+```
+┌─────────────────────────┐        ┌──────────────────────────────┐
+│  Go TUI (cmd/lazydeck)   │        │  Steam Deck / Steam Machine   │
+│  Bubble Tea + lipgloss   │        │  (SteamOS, Developer Mode)    │
+│                          │        │                                │
+│  internal/tui  ────────► │        │  steamos-devkit-client         │
+│  internal/client ─┐      │        │  (paired via HTTP, port 32000) │
+└────────────────────┼─────┘        └───────────────┬────────────────┘
+                     │  `uv run python cli.py <cmd>` │
+                     ▼                               │
+        ┌─────────────────────────┐                  │
+        │ python/cli.py            │                  │
+        │ (headless JSON wrapper)  │                  │
+        │                          │                  │
+        │ python/vendor/           │   HTTP (pair)    │
+        │  devkit_client ──────────┼──────────────────┤
+        │  (Valve/Collabora, MIT)  │   SSH (paramiko)  │
+        │                          │──────────────────┤
+        │                          │   rsync (subproc) │
+        │                          │──────────────────┤
+        │                          │   mDNS/Bonjour    │
+        │                          │◄─────────────────┘
+        └─────────────────────────┘   (_steamos-devkit._tcp.local.)
+```
+
+The Go side never speaks HTTP/SSH/rsync/mDNS itself — it only shells out to
+`cli.py`, which is a thin argparse wrapper around the same vendored library
+Valve's own GUI uses. This keeps the actual pairing/deploy protocol logic
+in one well-tested place instead of being reimplemented in Go.
+
+## Troubleshooting
+
+- **"could not locate the python/ directory"** — set `LAZYDECK_PYTHON_DIR`
+  to point at the `python/` directory (a pre-built release archive bundles
+  it as a sibling of the binary; a dev checkout resolves it automatically).
+- **`uv run` fails with a missing-package error** — run `just sync` (or
+  `uv sync --project python` if you installed a release archive) to
+  install `paramiko`/`appdirs`/`signalslot`/`ifaddr` into the managed venv.
+- **Device shows "offline / unpaired" after `s`** — press `r` to
+  (re-)register your workstation's SSH key with it first; devices must be
+  paired via the same Developer Mode pairing flow the official GUI uses.
+- **`f`/`a` (mDNS discover) finds nothing** — confirm the Deck/Steam
+  Machine is on the *same* Wi-Fi network/subnet as your Mac (mDNS doesn't
+  cross routed subnets or most VPNs), and that Developer Mode + pairing
+  are enabled on the device. A bare USB-C cable to the Deck does **not**
+  expose a network interface on retail SteamOS — you need Wi-Fi or a
+  USB-C-to-Ethernet adapter (see Valve's own devkit docs).
+- **A device row turns yellow/orange** — that's an `auth-failed` or
+  `invalid-input` error (see `error_kind` in the CLI's JSON, surfaced in
+  the TUI's status color); red means `unreachable` or an unexpected
+  script error. Check the log pane at the bottom of the TUI for the full
+  message.
+- **`ssh` (via `enter`) fails immediately** — the resolved key lives at
+  the path reported by `connection-info`; make sure it wasn't deleted or
+  regenerated outside of lazydeck/the official GUI.
 
 ## License note
 
