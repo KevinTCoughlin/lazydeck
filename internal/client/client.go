@@ -157,21 +157,50 @@ type DiscoveredDevice struct {
 // returns whatever devkits announced themselves on the LAN in that window.
 // Useful for finding a Steam Deck's address without knowing it ahead of
 // time, e.g. right after joining the same Wi-Fi network.
+//
+// mDNS/multicast socket setup can fail transiently (e.g. a network
+// interface still coming up right after joining Wi-Fi), so a real error
+// (as opposed to a clean "found nothing") is retried once after a short
+// backoff before being surfaced to the caller.
 func (c *Client) Discover(ctx context.Context, timeout time.Duration) ([]DiscoveredDevice, error) {
 	seconds := timeout.Seconds()
 	discoverer := *c
 	if buffer := timeout + 15*time.Second; buffer > discoverer.Timeout {
 		discoverer.Timeout = buffer
 	}
-	data, err := discoverer.run(ctx, "discover", "--timeout", fmt.Sprintf("%.1f", seconds))
-	if err != nil {
-		return nil, err
+	runner := func() (json.RawMessage, error) {
+		return discoverer.run(ctx, "discover", "--timeout", fmt.Sprintf("%.1f", seconds))
 	}
-	var found []DiscoveredDevice
-	if err := json.Unmarshal(data, &found); err != nil {
-		return nil, err
+	return discoverWithRetry(ctx, runner, 2, time.Second)
+}
+
+// discoverWithRetry retries runner up to maxAttempts times (with a delay
+// between attempts) when it returns an error, and parses the resulting JSON
+// on success. Split out from Discover so the retry/backoff behavior is
+// unit-testable with a fake runner, without invoking a real subprocess.
+func discoverWithRetry(ctx context.Context, runner func() (json.RawMessage, error), maxAttempts int, delay time.Duration) ([]DiscoveredDevice, error) {
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		data, err := runner()
+		if err != nil {
+			lastErr = err
+			if attempt < maxAttempts {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(delay):
+				}
+				continue
+			}
+			return nil, fmt.Errorf("discover failed after %d attempts: %w", maxAttempts, lastErr)
+		}
+		var found []DiscoveredDevice
+		if err := json.Unmarshal(data, &found); err != nil {
+			return nil, err
+		}
+		return found, nil
 	}
-	return found, nil
+	return nil, lastErr
 }
 
 // Status is the parsed output of `steamos-get-status --json` on the devkit.

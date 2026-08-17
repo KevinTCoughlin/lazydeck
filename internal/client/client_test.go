@@ -1,8 +1,11 @@
 package client
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestNewLocatesPythonDirViaEnv(t *testing.T) {
@@ -86,5 +89,59 @@ func TestParseEnvelopeMalformedJSON(t *testing.T) {
 	_, err := parseEnvelope([]byte("not json"), []byte(""), nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestDiscoverWithRetrySucceedsAfterTransientFailure(t *testing.T) {
+	calls := 0
+	runner := func() (json.RawMessage, error) {
+		calls++
+		if calls == 1 {
+			return nil, errors.New("mdns socket setup failed")
+		}
+		return json.RawMessage(`[{"name":"deck","address":"1.2.3.4","port":32000}]`), nil
+	}
+	found, err := discoverWithRetry(context.Background(), runner, 2, time.Millisecond)
+	if err != nil {
+		t.Fatalf("expected success on retry, got error: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected exactly 2 attempts, got %d", calls)
+	}
+	if len(found) != 1 || found[0].Name != "deck" {
+		t.Fatalf("unexpected result: %+v", found)
+	}
+}
+
+func TestDiscoverWithRetryExhaustsAttempts(t *testing.T) {
+	calls := 0
+	runner := func() (json.RawMessage, error) {
+		calls++
+		return nil, errors.New("persistent failure")
+	}
+	_, err := discoverWithRetry(context.Background(), runner, 2, time.Millisecond)
+	if err == nil {
+		t.Fatal("expected error after exhausting retries, got nil")
+	}
+	if calls != 2 {
+		t.Fatalf("expected exactly 2 attempts, got %d", calls)
+	}
+}
+
+func TestDiscoverWithRetryNoRetryOnSuccess(t *testing.T) {
+	calls := 0
+	runner := func() (json.RawMessage, error) {
+		calls++
+		return json.RawMessage(`[]`), nil
+	}
+	found, err := discoverWithRetry(context.Background(), runner, 2, time.Millisecond)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected a clean empty result to short-circuit at 1 attempt, got %d", calls)
+	}
+	if len(found) != 0 {
+		t.Fatalf("expected no devices found, got %+v", found)
 	}
 }
