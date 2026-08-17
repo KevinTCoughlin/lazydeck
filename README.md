@@ -1,4 +1,4 @@
-# devkit-tui
+# lazydeck
 
 A lazydocker-style terminal UI for managing a fleet of Steam devkits (Steam
 Machine, Steam Deck, ...) — pairing, deploying builds, checking status, and
@@ -18,7 +18,7 @@ managing several paired devices from one view. This project:
    logic — reimplementing that from scratch would be wasteful and risky.
 2. Adds a small headless CLI (`python/cli.py`) that drives that library and
    prints JSON, since upstream only exposes it through the GUI.
-3. Wraps that CLI in a Go + Bubble Tea TUI (`cmd/devkit-tui`) that shows one
+3. Wraps that CLI in a Go + Bubble Tea TUI (`cmd/lazydeck`) that shows one
    panel per configured device and drives `uv run` under the hood.
 
 ## Requirements
@@ -35,14 +35,14 @@ managing several paired devices from one view. This project:
 ## Setup
 
 ```bash
-git clone <this repo> && cd devkit-tui
+git clone <this repo> && cd lazydeck
 
 just sync   # one-time (and after pulling python/pyproject.toml changes):
             # uv-installs paramiko/appdirs/etc.
-just build  # go build -o devkit-tui ./cmd/devkit-tui
+just build  # go build -o lazydeck ./cmd/lazydeck
 ```
 
-Edit `~/.config/devkit-tui/devices.toml` (created for you on first run) to
+Edit `~/.config/lazydeck/devices.toml` (created for you on first run) to
 list your devkits:
 
 ```toml

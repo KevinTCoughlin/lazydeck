@@ -15,8 +15,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/kevintcoughlin/devkit-tui/internal/client"
-	"github.com/kevintcoughlin/devkit-tui/internal/config"
+	"github.com/kevintcoughlin/lazydeck/internal/client"
+	"github.com/kevintcoughlin/lazydeck/internal/config"
 )
 
 type deviceState struct {
@@ -433,7 +433,7 @@ var (
 
 func (m Model) View() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("devkit-tui") + dimStyle.Render("  — Steam devkit fleet manager") + "\n\n")
+	b.WriteString(titleStyle.Render("lazydeck") + dimStyle.Render("  — Steam devkit fleet manager") + "\n\n")
 
 	if len(m.devices) == 0 {
 		b.WriteString("No devices configured yet.\n")

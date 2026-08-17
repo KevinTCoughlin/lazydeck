@@ -1,5 +1,5 @@
 // Package config loads the list of devkit targets (Steam Machines, Steam
-// Decks, etc.) that devkit-tui manages, from a TOML file the user maintains.
+// Decks, etc.) that lazydeck manages, from a TOML file the user maintains.
 package config
 
 import (
@@ -21,14 +21,14 @@ type Config struct {
 	Devices []Device `toml:"device"`
 }
 
-// DefaultPath returns ~/.config/devkit-tui/devices.toml, creating the parent
+// DefaultPath returns ~/.config/lazydeck/devices.toml, creating the parent
 // directory if needed.
 func DefaultPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	dir = filepath.Join(dir, "devkit-tui")
+	dir = filepath.Join(dir, "lazydeck")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -52,7 +52,7 @@ func Load(path string) (*Config, error) {
 }
 
 func writeStarter(path string) error {
-	const starter = `# devkit-tui device list.
+	const starter = `# lazydeck device list.
 # One [[device]] block per Steam Machine / Steam Deck devkit you deploy to.
 # "machine" can be a hostname, IP address, or the mDNS service name shown
 # by the official SteamOS Devkit Client during pairing.

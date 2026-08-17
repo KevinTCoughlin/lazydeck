@@ -1,4 +1,4 @@
-module github.com/kevintcoughlin/devkit-tui
+module github.com/kevintcoughlin/lazydeck
 
 go 1.25.0
 

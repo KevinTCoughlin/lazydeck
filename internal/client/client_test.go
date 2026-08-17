@@ -3,7 +3,7 @@ package client
 import "testing"
 
 func TestNewLocatesPythonDirViaEnv(t *testing.T) {
-	t.Setenv("DEVKIT_TUI_PYTHON_DIR", "/some/custom/path")
+	t.Setenv("LAZYDECK_PYTHON_DIR", "/some/custom/path")
 	c, err := New()
 	if err != nil {
 		t.Fatalf("New: %v", err)

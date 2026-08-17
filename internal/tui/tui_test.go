@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/kevintcoughlin/devkit-tui/internal/client"
-	"github.com/kevintcoughlin/devkit-tui/internal/config"
+	"github.com/kevintcoughlin/lazydeck/internal/client"
+	"github.com/kevintcoughlin/lazydeck/internal/config"
 )
 
 func newTestModel(t *testing.T, n int) Model {

@@ -1,10 +1,10 @@
-# devkit-tui task runner. Run `just` (or `j` per your shell aliases) with no
+# lazydeck task runner. Run `just` (or `j` per your shell aliases) with no
 # arguments to see this list.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 python_dir := justfile_directory() / "python"
-bin := justfile_directory() / "devkit-tui"
+bin := justfile_directory() / "lazydeck"
 
 # List available recipes.
 default:
@@ -15,9 +15,9 @@ default:
 sync:
     cd {{python_dir}} && uv sync
 
-# Build the devkit-tui binary into the repo root.
+# Build the lazydeck binary into the repo root.
 build:
-    go build -o {{bin}} ./cmd/devkit-tui
+    go build -o {{bin}} ./cmd/lazydeck
 
 # Build (if needed) and launch the TUI.
 run: build

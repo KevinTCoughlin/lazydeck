@@ -1,5 +1,5 @@
 // Package client shells out to the vendored Python devkit CLI (python/cli.py)
-// via `uv run`, so devkit-tui never has to reimplement steamos-devkit's
+// via `uv run`, so lazydeck never has to reimplement steamos-devkit's
 // pairing / SSH / rsync protocol in Go. Each call returns a decoded JSON
 // envelope: {"ok": bool, "data": any, "error": string}.
 package client
@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// Client drives the headless Python CLI for one devkit-tui process.
+// Client drives the headless Python CLI for one lazydeck process.
 type Client struct {
 	PythonDir string // directory containing pyproject.toml + cli.py
 	Timeout   time.Duration
@@ -28,12 +28,12 @@ type envelope struct {
 	Error string          `json:"error"`
 }
 
-// New locates the vendored python/ directory, preferring $DEVKIT_TUI_PYTHON_DIR,
+// New locates the vendored python/ directory, preferring $LAZYDECK_PYTHON_DIR,
 // then a "python" sibling of the running binary (installed layout), then a
 // "python" sibling found by walking up from the current source file (dev
-// layout, i.e. running via `go run ./cmd/devkit-tui` inside the repo).
+// layout, i.e. running via `go run ./cmd/lazydeck` inside the repo).
 func New() (*Client, error) {
-	if dir := os.Getenv("DEVKIT_TUI_PYTHON_DIR"); dir != "" {
+	if dir := os.Getenv("LAZYDECK_PYTHON_DIR"); dir != "" {
 		return &Client{PythonDir: dir, Timeout: 60 * time.Second}, nil
 	}
 
@@ -44,7 +44,7 @@ func New() (*Client, error) {
 		}
 	}
 
-	// Dev layout: running via `go run ./cmd/devkit-tui` inside the repo.
+	// Dev layout: running via `go run ./cmd/lazydeck` inside the repo.
 	// runtime.Caller(0) resolves to this source file's compile-time path,
 	// so we can walk internal/client/client.go -> repo root -> python/.
 	if _, thisFile, _, ok := runtime.Caller(0); ok {
@@ -54,7 +54,7 @@ func New() (*Client, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("could not locate the python/ directory; set DEVKIT_TUI_PYTHON_DIR")
+	return nil, fmt.Errorf("could not locate the python/ directory; set LAZYDECK_PYTHON_DIR")
 }
 
 func isPythonDir(dir string) bool {

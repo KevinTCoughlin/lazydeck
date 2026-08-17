@@ -1,6 +1,6 @@
 *.pyc
 **/__pycache__/
 **/.ruff_cache/
-/devkit-tui
+/lazydeck
 python/.venv/
 python/vendor/devkit_client/**/__pycache__/
