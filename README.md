@@ -25,6 +25,7 @@ managing several paired devices from one view. This project:
 
 - Go 1.23+
 - [`uv`](https://docs.astral.sh/uv/) (manages the Python 3.10+ venv/deps for you)
+- [`just`](https://github.com/casey/just) task runner
 - `ssh`/`rsync` available on your machine (standard on macOS)
 
 ## Setup
@@ -32,11 +33,9 @@ managing several paired devices from one view. This project:
 ```bash
 git clone <this repo> && cd devkit-tui
 
-# One-time: let uv resolve/install the Python side (paramiko, appdirs, etc.)
-cd python && uv sync && cd ..
-
-# Build the TUI
-go build -o devkit-tui ./cmd/devkit-tui
+just sync   # one-time (and after pulling python/pyproject.toml changes):
+            # uv-installs paramiko/appdirs/etc.
+just build  # go build -o devkit-tui ./cmd/devkit-tui
 ```
 
 Edit `~/.config/devkit-tui/devices.toml` (created for you on first run) to
@@ -56,7 +55,17 @@ machine = "steamdeck.local"
 Then run:
 
 ```bash
-./devkit-tui
+just run    # builds (if needed) and launches the TUI
+```
+
+### Other recipes
+
+```bash
+just            # list all recipes
+just test       # go test ./...
+just lint       # gofmt -l . && go vet ./... && python3 -m py_compile ...
+just cli status --machine 192.168.1.50   # call the headless python CLI directly
+just clean      # remove the built binary and __pycache__ dirs
 ```
 
 ## Keybindings
