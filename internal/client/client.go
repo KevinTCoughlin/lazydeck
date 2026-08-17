@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -77,6 +78,16 @@ func isPythonDir(dir string) bool {
 
 // run invokes `uv run --project PythonDir python cli.py <args...>` and
 // decodes the JSON envelope it prints on stdout.
+// Preview renders the exact command line a call with these args would
+// invoke, without running anything. Modeled on lazydocker's practice of
+// always showing the real underlying command it's about to run rather than
+// only a human-friendly paraphrase — useful for trust/debugging when an
+// operation (like delete) touches real hardware over SSH.
+func (c *Client) Preview(args ...string) string {
+	full := append([]string{"run", "--project", c.PythonDir, "python", "cli.py"}, args...)
+	return "uv " + strings.Join(full, " ")
+}
+
 func (c *Client) run(ctx context.Context, args ...string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()

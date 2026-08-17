@@ -145,7 +145,7 @@ just clean      # remove the built binary and __pycache__ dirs
 | `r`       | register/pair the selected device                            |
 | `d`       | deploy — prompts for gameid, then local build directory      |
 | `l`       | sync-logs — prompts for gameid, then local directory to save |
-| `x`       | delete a previously deployed title — prompts for gameid      |
+| `x`       | delete a previously deployed title — prompts for gameid, then a `y`/`n` confirmation (no undo) |
 | `g`       | list games currently deployed on the selected device          |
 | `f`       | find devkits on the LAN via mDNS/Bonjour (~4s scan, logs only)|
 | `a`       | add-device wizard — discover, pick, persist to devices.toml, register |

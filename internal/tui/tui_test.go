@@ -105,6 +105,69 @@ func TestEscCancelsPrompt(t *testing.T) {
 	}
 }
 
+// TestDeleteRequiresConfirmation exercises the lazygit-style "are you sure?"
+// gate: entering a gameid must not fire a delete until 'y' is pressed, and
+// any other key cancels without deleting.
+func TestDeleteRequiresConfirmation(t *testing.T) {
+	m := newTestModel(t, 1)
+	m = sendKey(m, "x")
+	for _, r := range "my-game" {
+		m = sendKey(m, string(r))
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.step != promptDeleteConfirm {
+		t.Fatalf("expected promptDeleteConfirm after gameid entry, got %v", m.step)
+	}
+	if cmd != nil {
+		t.Fatalf("expected no command fired before confirmation")
+	}
+	if m.devices[0].busy {
+		t.Fatalf("device should not be busy before confirmation")
+	}
+
+	// A non-'y' key cancels without deleting.
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = updated.(Model)
+	if m.step != promptNone {
+		t.Fatalf("expected prompt to close after cancel, got %v", m.step)
+	}
+	if cmd != nil {
+		t.Fatalf("expected no command after cancelling")
+	}
+	if m.devices[0].busy {
+		t.Fatalf("device should not be busy after cancelling delete")
+	}
+	if len(m.log) == 0 || !strings.Contains(m.log[len(m.log)-1], "cancelled") {
+		t.Fatalf("expected a cancellation log entry, got %v", m.log)
+	}
+
+	// Re-run and confirm with 'y' this time -> should fire deleteCmd.
+	m = sendKey(m, "x")
+	for _, r := range "my-game" {
+		m = sendKey(m, string(r))
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m = updated.(Model)
+	if m.step != promptNone {
+		t.Fatalf("expected prompt closed after confirm, got %v", m.step)
+	}
+	if cmd == nil {
+		t.Fatalf("expected deleteCmd to be returned after confirming")
+	}
+	if !m.devices[0].busy {
+		t.Fatalf("expected device marked busy while delete runs")
+	}
+	if len(m.log) == 0 || !strings.Contains(m.log[len(m.log)-1], "deleting my-game") {
+		t.Fatalf("expected a delete log entry, got %v", m.log)
+	}
+	if !strings.Contains(m.log[len(m.log)-1], "uv run") {
+		t.Fatalf("expected the log entry to show the real underlying command, got %v", m.log[len(m.log)-1])
+	}
+}
+
 func TestStatusResultUpdatesDeviceState(t *testing.T) {
 	m := newTestModel(t, 2)
 	m.devices[0].busy = true

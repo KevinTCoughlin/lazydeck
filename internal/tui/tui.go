@@ -63,6 +63,13 @@ const (
 	promptLogsName
 	promptLogsDir
 	promptDeleteName
+	// promptDeleteConfirm is a single-keypress (not text-input) yes/no
+	// gate before an actual delete fires. Modeled on lazygit's
+	// default-on confirmation dialogs for destructive actions (e.g.
+	// discard changes, drop stash) — deleting a deployed title is the
+	// one lazydeck operation with no undo, so it gets an explicit
+	// "are you sure" step rather than firing on a single Enter.
+	promptDeleteConfirm
 )
 
 type Model struct {
@@ -208,6 +215,17 @@ func syncLogsCmd(cli *client.Client, index int, dev config.Device, name, dir str
 		err := cli.SyncLogs(ctx, dev.Machine, dev.Login, name, dir)
 		return actionDoneMsg{index: index, action: fmt.Sprintf("sync-logs %s", name), err: err}
 	}
+}
+
+// deleteCommandPreview renders the exact underlying uv/CLI invocation a
+// delete against dev will make, so the log line shows real transparency
+// instead of just a friendly paraphrase (see client.Client.Preview).
+func deleteCommandPreview(cli *client.Client, dev config.Device, name string) string {
+	args := []string{"delete", "--machine", dev.Machine, "--name", name}
+	if dev.Login != "" {
+		args = append(args, "--login", dev.Login)
+	}
+	return cli.Preview(args...)
 }
 
 func deleteCmd(cli *client.Client, index int, dev config.Device, name string) tea.Cmd {
@@ -500,6 +518,9 @@ func (m Model) startPrompt(step promptStep, placeholder string) Model {
 }
 
 func (m Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.step == promptDeleteConfirm {
+		return m.updateDeleteConfirm(msg)
+	}
 	switch msg.String() {
 	case "esc":
 		m.step = promptNone
@@ -554,20 +575,36 @@ func (m Model) advancePrompt(value string) (tea.Model, tea.Cmd) {
 		m.selected = make(map[int]bool)
 		return m, tea.Batch(cmds...)
 	case promptDeleteName:
-		m.step = promptNone
+		// Don't fire yet: capture the gameid and gate the actual delete
+		// behind an explicit y/n confirmation (see promptDeleteConfirm).
+		m.pendingName = value
+		m.step = promptDeleteConfirm
 		m.input.Blur()
-		cmds := make([]tea.Cmd, 0, len(m.promptIndices))
-		for _, i := range m.promptIndices {
-			d := m.devices[i]
-			m.devices[i].busy = true
-			m.log = append(m.log, fmt.Sprintf("deleting %s from %s ...", value, d.dev.Name))
-			cmds = append(cmds, deleteCmd(m.cli, i, d.dev, value))
-		}
-		m.selected = make(map[int]bool)
-		return m, tea.Batch(cmds...)
+		return m, nil
 	}
 	m.step = promptNone
 	return m, nil
+}
+
+// updateDeleteConfirm handles the single-keypress "are you sure?" gate that
+// precedes every delete. Only "y"/"Y" confirms; every other key (including
+// esc) cancels without deleting anything.
+func (m Model) updateDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.step = promptNone
+	if msg.String() != "y" && msg.String() != "Y" {
+		m.log = append(m.log, fmt.Sprintf("delete of %s cancelled", m.pendingName))
+		m.selected = make(map[int]bool)
+		return m, nil
+	}
+	cmds := make([]tea.Cmd, 0, len(m.promptIndices))
+	for _, i := range m.promptIndices {
+		d := m.devices[i]
+		m.devices[i].busy = true
+		m.log = append(m.log, fmt.Sprintf("deleting %s from %s (%s) ...", m.pendingName, d.dev.Name, deleteCommandPreview(m.cli, d.dev, m.pendingName)))
+		cmds = append(cmds, deleteCmd(m.cli, i, d.dev, m.pendingName))
+	}
+	m.selected = make(map[int]bool)
+	return m, tea.Batch(cmds...)
 }
 
 // updateHelp handles input while the "?" help overlay is shown: any key
@@ -680,6 +717,13 @@ func (m Model) View() string {
 		b.WriteString(dimStyle.Render(entry) + "\n")
 	}
 
+	if m.step == promptDeleteConfirm {
+		label := fmt.Sprintf("Delete %s from %d device(s)? This cannot be undone.", m.pendingName, len(m.promptIndices))
+		b.WriteString("\n" + promptStyle.Render(label) + "\n")
+		b.WriteString(helpStyle.Render("y confirm · any other key cancels"))
+		return b.String()
+	}
+
 	if m.step != promptNone {
 		b.WriteString("\n" + promptStyle.Render(m.input.Placeholder) + "\n" + m.input.View() + "\n")
 		b.WriteString(helpStyle.Render("enter confirm · esc cancel"))
@@ -716,7 +760,7 @@ var helpKeys = []struct{ key, desc string }{
 	{"r", "register (pair) this workstation's key with the selected device"},
 	{"d", "deploy a build (prompts for gameid + local directory)"},
 	{"l", "sync logs down for a gameid (prompts for gameid + local directory)"},
-	{"x", "delete a deployed title (prompts for gameid)"},
+	{"x", "delete a deployed title (prompts for gameid, then y/n confirm)"},
 	{"g", "list games deployed on the selected device"},
 	{"f", "mDNS-discover devkits on the LAN (logs results only)"},
 	{"a", "add device wizard: discover + pick + persist + register"},
