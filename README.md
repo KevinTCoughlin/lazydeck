@@ -42,12 +42,16 @@ to clone the repo, but you still need `uv` installed locally and must run
 `uv sync --project python` once after extracting, since the Python
 dependencies (`paramiko` et al.) aren't vendored into the binary.
 
-There's no Homebrew tap yet — for now, download + extract a release
-archive, run `uv sync --project python`, and put the `lazydeck` binary on
-your `PATH`. (A `kevintcoughlin/homebrew-lazydeck` tap is a natural next
-step once this sees more than personal use; it would need to decide how to
-bundle or document the Python half, since Homebrew formulae don't manage
-`uv` environments directly.)
+Install the macOS release with the Homebrew tap:
+
+```bash
+brew install kevintcoughlin/lazydeck/lazydeck
+```
+
+The formula depends on `uv`, installs the bundled `python/` runtime, and
+creates its writable managed environment under Homebrew's `var` directory on
+first run. No separate `uv sync` step is needed. The formula currently
+supports macOS and Linux on amd64 and arm64.
 
 Alternatively, `install.sh` automates the above (downloads the right
 archive for your OS/arch, installs the binary to `~/.local/bin`, and copies
