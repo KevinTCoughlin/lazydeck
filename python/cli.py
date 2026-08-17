@@ -65,6 +65,23 @@ def cmd_status(args: argparse.Namespace) -> None:
     emit(True, status)
 
 
+def cmd_connection_info(args: argparse.Namespace) -> None:
+    """Resolve login/address + the devkit SSH private key path, so the Go
+    side can open a real interactive `ssh` session itself (for a live
+    remote shell) without reimplementing resolve_machine()."""
+    ns = _machine_args(args.machine, args.login)
+    machine = dk.resolve_machine(
+        ns.machine,
+        login=ns.login,
+        need_login=True,
+        need_devkit1=False,
+        name_type=ns.machine_name_type,
+        http_port=ns.http_port,
+    )
+    _, key_path, _ = dk.ensure_devkit_key()
+    emit(True, {"address": machine.address, "login": machine.login, "key_path": key_path})
+
+
 def cmd_list_games(args: argparse.Namespace) -> None:
     ns = _machine_args(args.machine, args.login)
     games = dk.list_games(ns)
@@ -128,6 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     add("register", cmd_register, needs_login=False)
     add("status", cmd_status)
+    add("connection-info", cmd_connection_info)
     add("list-games", cmd_list_games)
 
     sp = add("deploy", cmd_deploy)

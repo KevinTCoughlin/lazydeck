@@ -91,6 +91,31 @@ func (c *Client) run(ctx context.Context, args ...string) (json.RawMessage, erro
 	return env.Data, nil
 }
 
+// ConnectionInfo resolves the login/address the devkit client would use,
+// plus the local devkit SSH private key path, so callers (the TUI) can open
+// a real interactive `ssh` session without going through paramiko.
+type ConnectionInfo struct {
+	Address string `json:"address"`
+	Login   string `json:"login"`
+	KeyPath string `json:"key_path"`
+}
+
+func (c *Client) ConnectionInfo(ctx context.Context, machine, login string) (*ConnectionInfo, error) {
+	args := []string{"connection-info", "--machine", machine}
+	if login != "" {
+		args = append(args, "--login", login)
+	}
+	data, err := c.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var info ConnectionInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
 // Register pairs this workstation's SSH key with the given machine.
 func (c *Client) Register(ctx context.Context, machine string) error {
 	_, err := c.run(ctx, "register", "--machine", machine)

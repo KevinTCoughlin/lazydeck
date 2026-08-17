@@ -61,18 +61,18 @@ Then run:
 
 ## Keybindings
 
-| Key       | Action                                   |
-|-----------|-------------------------------------------|
-| `↑`/`k`   | previous device                            |
-| `↓`/`j`   | next device                                |
-| `s`       | refresh status for all devices             |
-| `r`       | register/pair the selected device          |
-| `q`       | quit                                       |
-
-Deploy/log-sync/delete are implemented in `python/cli.py` and wired into
-`internal/client`; wiring them into interactive TUI keybindings (with a text
-prompt for the local build directory) is the natural next step — see
-`internal/tui/tui.go`.
+| Key       | Action                                                    |
+|-----------|-------------------------------------------------------------|
+| `↑`/`k`   | previous device                                              |
+| `↓`/`j`   | next device                                                  |
+| `s`       | refresh status for all devices                               |
+| `r`       | register/pair the selected device                            |
+| `d`       | deploy — prompts for gameid, then local build directory      |
+| `l`       | sync-logs — prompts for gameid, then local directory to save |
+| `x`       | delete a previously deployed title — prompts for gameid      |
+| `enter`   | open a real interactive `ssh` shell on the selected device    |
+| `esc`     | cancel an in-progress prompt                                 |
+| `q`       | quit                                                         |
 
 ## How it talks to devices
 
