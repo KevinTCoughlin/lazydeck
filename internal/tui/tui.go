@@ -6,11 +6,13 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -19,11 +21,34 @@ import (
 	"github.com/kevintcoughlin/lazydeck/internal/config"
 )
 
+// appMode selects which full-screen overlay (if any) intercepts key input
+// on top of the normal device-list view.
+type appMode int
+
+const (
+	modeNormal appMode = iota
+	modeHelp
+	modeWizard
+)
+
 type deviceState struct {
 	dev       config.Device
 	statusMsg string // one-line human summary, e.g. "online · SteamOS 3.6 · plasma-wayland"
 	busy      bool
 	lastErr   error
+}
+
+// errorKind returns the coarse category of lastErr (see client.CLIError),
+// or "" if there is no error or it isn't a categorized CLIError.
+func (d deviceState) errorKind() string {
+	if d.lastErr == nil {
+		return ""
+	}
+	var cliErr *client.CLIError
+	if errors.As(d.lastErr, &cliErr) {
+		return cliErr.Kind
+	}
+	return ""
 }
 
 // promptStep drives the small sequential text-input flows used by the
@@ -51,9 +76,44 @@ type Model struct {
 	step        promptStep
 	input       textinput.Model
 	pendingName string // gameid captured in step 1, used in step 2
+	// promptIndices is the set of device indices a multi-step prompt (deploy /
+	// sync-logs / delete) will act on, captured when the prompt starts so
+	// mid-prompt selection changes can't retarget it.
+	promptIndices []int
+
+	// selected tracks multi-selected devices (toggled with space) for batch
+	// deploy / sync-logs / delete. Empty selection means "just the cursor".
+	selected map[int]bool
+
+	spinner spinner.Model
+
+	mode appMode
+
+	// configPath/cfg are kept so the add-device wizard can persist newly
+	// discovered devices back to devices.toml.
+	configPath string
+	cfg        *config.Config
+	wizard     wizardState
+}
+
+// wizardState drives the "a" (add device) flow: mDNS-discover devices, let
+// the user pick one from a list, then persist + register it.
+type wizardState struct {
+	items   []client.DiscoveredDevice
+	cursor  int
+	loading bool
+	err     error
 }
 
 func New(cli *client.Client, cfg *config.Config) Model {
+	return NewWithPath(cli, cfg, "")
+}
+
+// NewWithPath is like New but also records where cfg was loaded from, so the
+// add-device wizard can persist newly discovered devices. Passing an empty
+// path disables the wizard's save step (devices are still addable in
+// memory for the running session, just not persisted).
+func NewWithPath(cli *client.Client, cfg *config.Config, path string) Model {
 	devices := make([]deviceState, len(cfg.Devices))
 	for i, d := range cfg.Devices {
 		devices[i] = deviceState{dev: d, statusMsg: "unknown (press s to refresh)"}
@@ -61,14 +121,25 @@ func New(cli *client.Client, cfg *config.Config) Model {
 	ti := textinput.New()
 	ti.CharLimit = 256
 	ti.Width = 60
-	return Model{cli: cli, devices: devices, input: ti}
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	return Model{
+		cli:        cli,
+		devices:    devices,
+		input:      ti,
+		selected:   make(map[int]bool),
+		spinner:    sp,
+		configPath: path,
+		cfg:        cfg,
+	}
 }
 
 func (m Model) Init() tea.Cmd {
-	if len(m.devices) == 0 {
-		return nil
+	cmds := []tea.Cmd{m.spinner.Tick}
+	if len(m.devices) > 0 {
+		cmds = append(cmds, refreshAllCmd(m.cli, m.devices))
 	}
-	return refreshAllCmd(m.cli, m.devices)
+	return tea.Batch(cmds...)
 }
 
 // --- messages ---
@@ -164,16 +235,17 @@ func listGamesCmd(cli *client.Client, index int, dev config.Device) tea.Cmd {
 }
 
 type discoverResultMsg struct {
-	found []client.DiscoveredDevice
-	err   error
+	found     []client.DiscoveredDevice
+	err       error
+	forWizard bool
 }
 
-func discoverCmd(cli *client.Client) tea.Cmd {
+func discoverCmd(cli *client.Client, forWizard bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		found, err := cli.Discover(ctx, 4*time.Second)
-		return discoverResultMsg{found: found, err: err}
+		return discoverResultMsg{found: found, err: err, forWizard: forWizard}
 	}
 }
 
@@ -207,7 +279,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
 	case tea.KeyMsg:
+		switch m.mode {
+		case modeHelp:
+			return m.updateHelp(msg)
+		case modeWizard:
+			return m.updateWizard(msg)
+		}
 		if m.step != promptNone {
 			return m.updatePrompt(msg)
 		}
@@ -281,6 +364,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case discoverResultMsg:
+		if msg.forWizard {
+			m.wizard.loading = false
+			m.wizard.err = msg.err
+			m.wizard.items = msg.found
+			m.wizard.cursor = 0
+			return m, nil
+		}
 		if msg.err != nil {
 			m.log = append(m.log, fmt.Sprintf("discover FAILED: %v", msg.err))
 			return m, nil
@@ -322,21 +412,33 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.devices[m.cursor].busy = true
 		m.log = append(m.log, fmt.Sprintf("registering %s ...", d.dev.Name))
 		return m, registerCmd(m.cli, m.cursor, d.dev)
+	case " ":
+		if len(m.devices) == 0 {
+			break
+		}
+		if m.selected[m.cursor] {
+			delete(m.selected, m.cursor)
+		} else {
+			m.selected[m.cursor] = true
+		}
 	case "d":
 		if len(m.devices) == 0 {
 			break
 		}
-		return m.startPrompt(promptDeployName, "gameid to deploy as: "), nil
+		m.promptIndices = m.targetIndices()
+		return m.startPrompt(promptDeployName, promptLabel("gameid to deploy as: ", len(m.promptIndices))), nil
 	case "l":
 		if len(m.devices) == 0 {
 			break
 		}
-		return m.startPrompt(promptLogsName, "gameid to fetch logs for: "), nil
+		m.promptIndices = m.targetIndices()
+		return m.startPrompt(promptLogsName, promptLabel("gameid to fetch logs for: ", len(m.promptIndices))), nil
 	case "x":
 		if len(m.devices) == 0 {
 			break
 		}
-		return m.startPrompt(promptDeleteName, "gameid to delete: "), nil
+		m.promptIndices = m.targetIndices()
+		return m.startPrompt(promptDeleteName, promptLabel("gameid to delete: ", len(m.promptIndices))), nil
 	case "g":
 		if len(m.devices) == 0 {
 			break
@@ -347,7 +449,13 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, listGamesCmd(m.cli, m.cursor, d.dev)
 	case "f":
 		m.log = append(m.log, "discovering devkits on the LAN (mDNS, ~4s)...")
-		return m, discoverCmd(m.cli)
+		return m, discoverCmd(m.cli, false)
+	case "a":
+		m.mode = modeWizard
+		m.wizard = wizardState{loading: true}
+		return m, discoverCmd(m.cli, true)
+	case "?":
+		m.mode = modeHelp
 	case "enter":
 		if len(m.devices) == 0 {
 			break
@@ -358,6 +466,29 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, connectionInfoCmd(m.cli, m.cursor, d.dev)
 	}
 	return m, nil
+}
+
+// targetIndices returns the multi-selected device indices, or just the
+// cursor if nothing is selected — used by deploy/sync-logs/delete so those
+// keys transparently batch across a selection made with space.
+func (m Model) targetIndices() []int {
+	if len(m.selected) == 0 {
+		return []int{m.cursor}
+	}
+	idx := make([]int, 0, len(m.selected))
+	for i := range m.devices {
+		if m.selected[i] {
+			idx = append(idx, i)
+		}
+	}
+	return idx
+}
+
+func promptLabel(base string, count int) string {
+	if count <= 1 {
+		return base
+	}
+	return fmt.Sprintf("%s (applies to %d selected devices) ", strings.TrimRight(base, " "), count)
 }
 
 func (m Model) startPrompt(step promptStep, placeholder string) Model {
@@ -387,9 +518,10 @@ func (m Model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // advancePrompt runs after Enter on a populated prompt: either moves to the
-// next field (e.g. gameid -> directory) or fires the underlying action.
+// next field (e.g. gameid -> directory) or fires the underlying action
+// across every device in m.promptIndices (usually just the cursor, or the
+// multi-selected set if the user pressed space before d/l/x).
 func (m Model) advancePrompt(value string) (tea.Model, tea.Cmd) {
-	d := m.devices[m.cursor]
 	switch m.step {
 	case promptDeployName:
 		m.pendingName = value
@@ -397,26 +529,94 @@ func (m Model) advancePrompt(value string) (tea.Model, tea.Cmd) {
 	case promptDeployDir:
 		m.step = promptNone
 		m.input.Blur()
-		m.devices[m.cursor].busy = true
-		m.log = append(m.log, fmt.Sprintf("deploying %s (%s) to %s ...", m.pendingName, value, d.dev.Name))
-		return m, deployCmd(m.cli, m.cursor, d.dev, m.pendingName, value)
+		cmds := make([]tea.Cmd, 0, len(m.promptIndices))
+		for _, i := range m.promptIndices {
+			d := m.devices[i]
+			m.devices[i].busy = true
+			m.log = append(m.log, fmt.Sprintf("deploying %s (%s) to %s ...", m.pendingName, value, d.dev.Name))
+			cmds = append(cmds, deployCmd(m.cli, i, d.dev, m.pendingName, value))
+		}
+		m.selected = make(map[int]bool)
+		return m, tea.Batch(cmds...)
 	case promptLogsName:
 		m.pendingName = value
 		return m.startPrompt(promptLogsDir, "local directory to save logs into: "), nil
 	case promptLogsDir:
 		m.step = promptNone
 		m.input.Blur()
-		m.devices[m.cursor].busy = true
-		m.log = append(m.log, fmt.Sprintf("syncing logs for %s from %s ...", m.pendingName, d.dev.Name))
-		return m, syncLogsCmd(m.cli, m.cursor, d.dev, m.pendingName, value)
+		cmds := make([]tea.Cmd, 0, len(m.promptIndices))
+		for _, i := range m.promptIndices {
+			d := m.devices[i]
+			m.devices[i].busy = true
+			m.log = append(m.log, fmt.Sprintf("syncing logs for %s from %s ...", m.pendingName, d.dev.Name))
+			cmds = append(cmds, syncLogsCmd(m.cli, i, d.dev, m.pendingName, value))
+		}
+		m.selected = make(map[int]bool)
+		return m, tea.Batch(cmds...)
 	case promptDeleteName:
 		m.step = promptNone
 		m.input.Blur()
-		m.devices[m.cursor].busy = true
-		m.log = append(m.log, fmt.Sprintf("deleting %s from %s ...", value, d.dev.Name))
-		return m, deleteCmd(m.cli, m.cursor, d.dev, value)
+		cmds := make([]tea.Cmd, 0, len(m.promptIndices))
+		for _, i := range m.promptIndices {
+			d := m.devices[i]
+			m.devices[i].busy = true
+			m.log = append(m.log, fmt.Sprintf("deleting %s from %s ...", value, d.dev.Name))
+			cmds = append(cmds, deleteCmd(m.cli, i, d.dev, value))
+		}
+		m.selected = make(map[int]bool)
+		return m, tea.Batch(cmds...)
 	}
 	m.step = promptNone
+	return m, nil
+}
+
+// updateHelp handles input while the "?" help overlay is shown: any key
+// dismisses it back to the normal device list.
+func (m Model) updateHelp(_ tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.mode = modeNormal
+	return m, nil
+}
+
+// updateWizard drives the "a" (add device) flow: navigate the discovered
+// devkit list, and on enter persist the chosen one to devices.toml (if a
+// config path was provided) then trigger a register against it.
+func (m Model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.mode = modeNormal
+		return m, nil
+	case "up", "k":
+		if m.wizard.cursor > 0 {
+			m.wizard.cursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.wizard.cursor < len(m.wizard.items)-1 {
+			m.wizard.cursor++
+		}
+		return m, nil
+	case "enter":
+		if m.wizard.loading || len(m.wizard.items) == 0 {
+			return m, nil
+		}
+		found := m.wizard.items[m.wizard.cursor]
+		dev := config.Device{Name: found.Name, Machine: found.Address}
+		if m.configPath != "" {
+			if err := config.AddDevice(m.configPath, m.cfg, dev); err != nil {
+				m.log = append(m.log, fmt.Sprintf("add device %q FAILED: %v", found.Name, err))
+				m.mode = modeNormal
+				return m, nil
+			}
+		} else {
+			m.cfg.Devices = append(m.cfg.Devices, dev)
+		}
+		m.devices = append(m.devices, deviceState{dev: dev, statusMsg: "unknown (press s to refresh)"})
+		m.cursor = len(m.devices) - 1
+		m.mode = modeNormal
+		m.log = append(m.log, fmt.Sprintf("added %q (%s) — registering ...", dev.Name, dev.Machine))
+		m.devices[m.cursor].busy = true
+		return m, registerCmd(m.cli, m.cursor, dev)
+	}
 	return m, nil
 }
 
@@ -427,17 +627,26 @@ var (
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	errStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	warnStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	okStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("120"))
 	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 	promptStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 )
 
 func (m Model) View() string {
+	switch m.mode {
+	case modeHelp:
+		return m.helpView()
+	case modeWizard:
+		return m.wizardView()
+	}
+
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("lazydeck") + dimStyle.Render("  — Steam devkit fleet manager") + "\n\n")
 
 	if len(m.devices) == 0 {
 		b.WriteString("No devices configured yet.\n")
-		b.WriteString(dimStyle.Render("Add a [[device]] block to your devices.toml and restart.") + "\n")
+		b.WriteString(dimStyle.Render("Press 'a' to discover devkits on the LAN, or add a [[device]] block to devices.toml by hand.") + "\n")
 	}
 
 	for i, d := range m.devices {
@@ -447,11 +656,15 @@ func (m Model) View() string {
 			cursor = "> "
 			style = selectedStyle
 		}
-		state := d.statusMsg
-		if d.busy {
-			state = "working..."
+		mark := " "
+		if m.selected[i] {
+			mark = "*"
 		}
-		line := fmt.Sprintf("%s%-24s %s", cursor, d.dev.Name, state)
+		state, stateStyle := m.renderState(d)
+		if d.busy {
+			state = m.spinner.View() + " " + state
+		}
+		line := fmt.Sprintf("%s%s%-24s %s", cursor, mark, d.dev.Name, stateStyle.Render(state))
 		if d.lastErr != nil {
 			line += "  " + errStyle.Render("("+truncate(d.lastErr.Error(), 40)+")")
 		}
@@ -473,7 +686,84 @@ func (m Model) View() string {
 		return b.String()
 	}
 
-	b.WriteString("\n" + helpStyle.Render("↑/↓ select · s refresh · r register · d deploy · l sync-logs · x delete · g games · f find (mDNS) · enter shell · q quit"))
+	b.WriteString("\n" + helpStyle.Render("? help · ↑/↓ select · space multi-select · a add device · s refresh · enter shell · q quit"))
+	return b.String()
+}
+
+// renderState returns the device's one-line status text plus the style to
+// color it with: green for a healthy "online" summary, red/yellow/orange
+// depending on the categorized error kind (see client.CLIError), or dim
+// gray while still unknown.
+func (m Model) renderState(d deviceState) (string, lipgloss.Style) {
+	if d.lastErr == nil {
+		if strings.HasPrefix(d.statusMsg, "unknown") {
+			return d.statusMsg, dimStyle
+		}
+		return d.statusMsg, okStyle
+	}
+	switch d.errorKind() {
+	case "auth-failed", "invalid-input":
+		return d.statusMsg, warnStyle
+	default:
+		return d.statusMsg, errStyle
+	}
+}
+
+var helpKeys = []struct{ key, desc string }{
+	{"↑/k, ↓/j", "move cursor"},
+	{"space", "toggle multi-select (batches d/l/x across selection)"},
+	{"s", "refresh status of all devices"},
+	{"r", "register (pair) this workstation's key with the selected device"},
+	{"d", "deploy a build (prompts for gameid + local directory)"},
+	{"l", "sync logs down for a gameid (prompts for gameid + local directory)"},
+	{"x", "delete a deployed title (prompts for gameid)"},
+	{"g", "list games deployed on the selected device"},
+	{"f", "mDNS-discover devkits on the LAN (logs results only)"},
+	{"a", "add device wizard: discover + pick + persist + register"},
+	{"enter", "open an interactive SSH shell to the selected device"},
+	{"?", "toggle this help screen"},
+	{"q, ctrl+c", "quit"},
+}
+
+func (m Model) helpView() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("lazydeck — keybindings") + "\n\n")
+	for _, k := range helpKeys {
+		fmt.Fprintf(&b, "  %-10s %s\n", k.key, k.desc)
+	}
+	b.WriteString("\n" + helpStyle.Render("press any key to go back"))
+	return b.String()
+}
+
+func (m Model) wizardView() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("lazydeck — add device") + "\n\n")
+	if m.wizard.loading {
+		b.WriteString(m.spinner.View() + " discovering devkits on the LAN (mDNS, ~4s)...\n")
+		b.WriteString("\n" + helpStyle.Render("esc cancel"))
+		return b.String()
+	}
+	if m.wizard.err != nil {
+		b.WriteString(errStyle.Render("discover failed: "+m.wizard.err.Error()) + "\n")
+		b.WriteString("\n" + helpStyle.Render("esc back"))
+		return b.String()
+	}
+	if len(m.wizard.items) == 0 {
+		b.WriteString("No devkits announced themselves on the LAN.\n")
+		b.WriteString(dimStyle.Render("Make sure the Deck/Steam Machine is on the same network and Developer Mode pairing is enabled.") + "\n")
+		b.WriteString("\n" + helpStyle.Render("esc back"))
+		return b.String()
+	}
+	for i, d := range m.wizard.items {
+		cursor := "  "
+		style := lipgloss.NewStyle()
+		if i == m.wizard.cursor {
+			cursor = "> "
+			style = selectedStyle
+		}
+		b.WriteString(style.Render(fmt.Sprintf("%s%-24s %s:%d", cursor, d.Name, d.Address, d.Port)) + "\n")
+	}
+	b.WriteString("\n" + helpStyle.Render("↑/↓ select · enter add + register · esc cancel"))
 	return b.String()
 }
 

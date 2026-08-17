@@ -3,6 +3,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,6 +50,35 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	return &cfg, nil
+}
+
+// Save writes cfg to path as TOML, overwriting any existing contents. It is
+// used by the TUI's device-discovery wizard to persist newly added devices
+// without requiring the user to hand-edit devices.toml.
+func Save(path string, cfg *Config) error {
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
+		return fmt.Errorf("encoding config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating config dir: %w", err)
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	return nil
+}
+
+// AddDevice appends d to cfg.Devices and persists the result to path. It
+// returns an error if a device with the same Name already exists.
+func AddDevice(path string, cfg *Config, d Device) error {
+	for _, existing := range cfg.Devices {
+		if existing.Name == d.Name {
+			return fmt.Errorf("device %q already exists", d.Name)
+		}
+	}
+	cfg.Devices = append(cfg.Devices, d)
+	return Save(path, cfg)
 }
 
 func writeStarter(path string) error {

@@ -87,16 +87,23 @@ just clean      # remove the built binary and __pycache__ dirs
 |-----------|-------------------------------------------------------------|
 | `↑`/`k`   | previous device                                              |
 | `↓`/`j`   | next device                                                  |
+| `space`   | toggle multi-select (batches `d`/`l`/`x` across the selection)|
 | `s`       | refresh status for all devices                               |
 | `r`       | register/pair the selected device                            |
 | `d`       | deploy — prompts for gameid, then local build directory      |
 | `l`       | sync-logs — prompts for gameid, then local directory to save |
 | `x`       | delete a previously deployed title — prompts for gameid      |
 | `g`       | list games currently deployed on the selected device          |
-| `f`       | find devkits on the LAN via mDNS/Bonjour (~4s scan)          |
+| `f`       | find devkits on the LAN via mDNS/Bonjour (~4s scan, logs only)|
+| `a`       | add-device wizard — discover, pick, persist to devices.toml, register |
 | `enter`   | open a real interactive `ssh` shell on the selected device    |
-| `esc`     | cancel an in-progress prompt                                 |
+| `?`       | toggle the full keybinding help screen                       |
+| `esc`     | cancel an in-progress prompt / wizard                        |
 | `q`       | quit                                                         |
+
+Selecting one or more devices with `space` before pressing `d`/`l`/`x` runs
+that operation across every selected device at once — the lazydocker-style
+"batch operation on the fleet" workflow.
 
 ## How it talks to devices
 

@@ -140,6 +140,97 @@ func TestQuitOnQ(t *testing.T) {
 	}
 }
 
+func TestHelpToggle(t *testing.T) {
+	m := newTestModel(t, 1)
+	m = sendKey(m, "?")
+	if m.mode != modeHelp {
+		t.Fatalf("expected modeHelp after '?', got %v", m.mode)
+	}
+	if !strings.Contains(m.View(), "keybindings") {
+		t.Fatalf("expected help view to render keybindings, got: %s", m.View())
+	}
+	// any key dismisses help
+	m = sendKey(m, "x")
+	if m.mode != modeNormal {
+		t.Fatalf("expected modeNormal after dismissing help, got %v", m.mode)
+	}
+}
+
+func TestMultiSelectBatchesDeploy(t *testing.T) {
+	m := newTestModel(t, 3)
+	m = sendKey(m, " ") // select device 0
+	m = sendKey(m, "j")
+	m = sendKey(m, " ") // select device 1
+	if len(m.selected) != 2 {
+		t.Fatalf("expected 2 selected devices, got %d", len(m.selected))
+	}
+
+	m = sendKey(m, "d")
+	if len(m.promptIndices) != 2 {
+		t.Fatalf("expected promptIndices to capture both selections, got %v", m.promptIndices)
+	}
+	if !strings.Contains(m.input.Placeholder, "2 selected") {
+		t.Fatalf("expected placeholder to mention batch size, got %q", m.input.Placeholder)
+	}
+
+	for _, r := range "batch-game" {
+		m = sendKey(m, string(r))
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	for _, r := range "/tmp/build" {
+		m = sendKey(m, string(r))
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatalf("expected a batched deploy command")
+	}
+	if !m.devices[0].busy || !m.devices[1].busy {
+		t.Fatalf("expected both selected devices marked busy, got %+v", m.devices)
+	}
+	if m.devices[2].busy {
+		t.Fatalf("expected unselected device 2 to remain idle")
+	}
+	if len(m.selected) != 0 {
+		t.Fatalf("expected selection cleared after firing batch, got %v", m.selected)
+	}
+}
+
+func TestAddDeviceWizardDiscoverAndPick(t *testing.T) {
+	m := newTestModel(t, 0)
+	m = sendKey(m, "a")
+	if m.mode != modeWizard || !m.wizard.loading {
+		t.Fatalf("expected wizard mode + loading after 'a', got mode=%v loading=%v", m.mode, m.wizard.loading)
+	}
+
+	updated, _ := m.Update(discoverResultMsg{
+		forWizard: true,
+		found: []client.DiscoveredDevice{
+			{Name: "found-deck", Address: "10.0.0.5", Port: 32000},
+		},
+	})
+	m = updated.(Model)
+	if m.wizard.loading {
+		t.Fatalf("expected loading cleared after discover result")
+	}
+	if len(m.wizard.items) != 1 {
+		t.Fatalf("expected 1 discovered item, got %d", len(m.wizard.items))
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.mode != modeNormal {
+		t.Fatalf("expected mode back to normal after picking a device")
+	}
+	if len(m.devices) != 1 || m.devices[0].dev.Name != "found-deck" {
+		t.Fatalf("expected the discovered device added to the list, got %+v", m.devices)
+	}
+	if cmd == nil {
+		t.Fatalf("expected a register command fired after adding the device")
+	}
+}
+
 type errFake struct{}
 
 func (errFake) Error() string { return "boom" }

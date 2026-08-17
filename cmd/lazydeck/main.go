@@ -36,7 +36,7 @@ func run() error {
 		return err
 	}
 
-	m := tui.New(cli, cfg)
+	m := tui.NewWithPath(cli, cfg, path)
 	p := tea.NewProgram(m)
 	_, err = p.Run()
 	return err

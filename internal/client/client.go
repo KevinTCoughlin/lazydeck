@@ -23,10 +23,23 @@ type Client struct {
 }
 
 type envelope struct {
-	OK    bool            `json:"ok"`
-	Data  json.RawMessage `json:"data"`
-	Error string          `json:"error"`
+	OK        bool            `json:"ok"`
+	Data      json.RawMessage `json:"data"`
+	Error     string          `json:"error"`
+	ErrorKind string          `json:"error_kind"`
 }
+
+// CLIError wraps a failure reported by cli.py along with its coarse
+// category (auth-failed / unreachable / invalid-input / script-error /
+// unknown), so callers like the TUI can react differently (e.g. color an
+// "unreachable" device differently from an "auth-failed" one) without
+// string-matching error messages.
+type CLIError struct {
+	Kind    string
+	Message string
+}
+
+func (e *CLIError) Error() string { return e.Message }
 
 // New locates the vendored python/ directory, preferring $LAZYDECK_PYTHON_DIR,
 // then a "python" sibling of the running binary (installed layout), then a
@@ -77,16 +90,27 @@ func (c *Client) run(ctx context.Context, args ...string) (json.RawMessage, erro
 	cmd.Stderr = &stderr
 
 	runErr := cmd.Run()
+	return parseEnvelope(stdout.Bytes(), stderr.Bytes(), runErr)
+}
 
+// parseEnvelope decodes cli.py's {"ok":bool,"data":any,"error":string}
+// JSON envelope from raw stdout/stderr, translating subprocess failures and
+// malformed output into clear errors instead of panicking or silently
+// returning zero values. Split out from run() so it can be unit tested
+// without invoking a real `uv`/subprocess.
+func parseEnvelope(stdout, stderr []byte, runErr error) (json.RawMessage, error) {
 	var env envelope
-	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &env); err != nil {
+	if err := json.Unmarshal(bytes.TrimSpace(stdout), &env); err != nil {
 		if runErr != nil {
-			return nil, fmt.Errorf("uv run failed: %w\nstderr: %s", runErr, stderr.String())
+			return nil, fmt.Errorf("uv run failed: %w\nstderr: %s", runErr, stderr)
 		}
-		return nil, fmt.Errorf("could not parse cli.py output: %w\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
+		return nil, fmt.Errorf("could not parse cli.py output: %w\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
 	if !env.OK {
-		return nil, fmt.Errorf("%s", env.Error)
+		if env.Error == "" {
+			return nil, fmt.Errorf("cli.py reported failure with no error message")
+		}
+		return nil, &CLIError{Kind: env.ErrorKind, Message: env.Error}
 	}
 	return env.Data, nil
 }

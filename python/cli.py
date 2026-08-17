@@ -45,13 +45,34 @@ def _machine_args(machine: str, login: str | None) -> SimpleNamespace:
     )
 
 
-def emit(ok: bool, data=None, error: str | None = None) -> None:
+def emit(ok: bool, data=None, error: str | None = None, error_kind: str | None = None) -> None:
     payload = {"ok": ok}
     if ok:
         payload["data"] = data
     else:
         payload["error"] = error
+        payload["error_kind"] = error_kind or "unknown"
     print(json.dumps(payload, default=str))
+
+
+def classify_error(exc: BaseException) -> str:
+    """Best-effort categorization of a raised exception so the Go TUI can
+    show a clearer message than a raw stack trace string (e.g. distinguish
+    "wrong SSH key" from "device unreachable" from "our own input
+    validation"). Falls back to "script-error" for anything unrecognized."""
+    import socket
+
+    import paramiko
+
+    if isinstance(exc, paramiko.AuthenticationException):
+        return "auth-failed"
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return "unreachable"
+    if isinstance(exc, (socket.gaierror, ConnectionRefusedError, OSError)):
+        return "unreachable"
+    if isinstance(exc, (ValueError, FileNotFoundError)):
+        return "invalid-input"
+    return "script-error"
 
 
 def cmd_register(args: argparse.Namespace) -> None:
@@ -215,7 +236,7 @@ def main(argv=None) -> int:
     try:
         args.func(args)
     except Exception as exc:  # noqa: BLE001 - surfaced to caller as JSON
-        emit(False, error=str(exc))
+        emit(False, error=str(exc), error_kind=classify_error(exc))
         return 1
     return 0
 

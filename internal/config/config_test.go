@@ -46,3 +46,35 @@ machine = "steamdeck.local"
 		t.Errorf("unexpected second device: %+v", cfg.Devices[1])
 	}
 }
+
+func TestSaveAndAddDeviceRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devices.toml")
+
+	cfg := &Config{}
+	if err := AddDevice(path, cfg, Device{Name: "deck-1", Machine: "deck1.local"}); err != nil {
+		t.Fatalf("AddDevice: %v", err)
+	}
+	if err := AddDevice(path, cfg, Device{Name: "deck-2", Machine: "192.168.1.60", Login: "deck"}); err != nil {
+		t.Fatalf("AddDevice: %v", err)
+	}
+
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after Save: %v", err)
+	}
+	if len(reloaded.Devices) != 2 {
+		t.Fatalf("expected 2 devices after round-trip, got %d", len(reloaded.Devices))
+	}
+	if reloaded.Devices[0].Name != "deck-1" || reloaded.Devices[0].Machine != "deck1.local" {
+		t.Errorf("unexpected first device: %+v", reloaded.Devices[0])
+	}
+	if reloaded.Devices[1].Login != "deck" {
+		t.Errorf("unexpected second device: %+v", reloaded.Devices[1])
+	}
+
+	// Duplicate name should be rejected.
+	if err := AddDevice(path, cfg, Device{Name: "deck-1", Machine: "duplicate"}); err == nil {
+		t.Error("expected error adding duplicate device name, got nil")
+	}
+}
