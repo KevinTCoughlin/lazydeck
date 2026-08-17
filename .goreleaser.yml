@@ -36,6 +36,8 @@ archives:
       # Ship the Python half alongside the binary so `LAZYDECK_PYTHON_DIR`
       # can point at it without a separate clone; users still need `uv`
       # installed and must run `uv sync` once inside python/.
+      # Include files directly under python/ as well as vendored modules.
+      - python/*
       - python/**/*
 
 checksum:
