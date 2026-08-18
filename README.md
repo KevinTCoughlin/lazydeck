@@ -75,6 +75,9 @@ Edit `~/.config/lazydeck/devices.toml` (created for you on first run) to
 list your devkits:
 
 ```toml
+# Optional root-level setting; it must precede the first [[device]] table.
+refresh_interval_seconds = 30
+
 [[device]]
 name = "steam-machine"
 machine = "192.168.1.50"   # hostname, IP, or mDNS service name
@@ -85,12 +88,8 @@ name = "steam-deck"
 machine = "steamdeck.local"
 ```
 
-Optionally enable periodic background status refresh (off by default —
-status still refreshes on startup and on the `s` key) by adding:
-
-```toml
-refresh_interval_seconds = 30
-```
+Periodic background status refresh is off by default; omit
+`refresh_interval_seconds` to refresh only on startup and with the `s` key.
 
 Don't know the Deck's IP yet? Find it via mDNS/Bonjour (works once the Deck
 is on the same Wi-Fi and Developer Mode pairing is enabled):

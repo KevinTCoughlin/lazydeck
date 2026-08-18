@@ -166,7 +166,7 @@ func NewWithPath(cli *client.Client, cfg *config.Config, path string) Model {
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spinner.Tick}
 	if len(m.devices) > 0 {
-		cmds = append(cmds, refreshAllCmd(m.cli, m.devices))
+		cmds = append(cmds, func() tea.Msg { return initialRefreshMsg{} })
 	}
 	if m.refreshInterval > 0 {
 		cmds = append(cmds, autoRefreshTickCmd(m.refreshInterval))
@@ -178,6 +178,7 @@ func (m Model) Init() tea.Cmd {
 // schedule to periodically re-check every device's status in the
 // background, similar to lazygit/lazydocker's auto-refresh (issue #3).
 type autoRefreshTickMsg struct{}
+type initialRefreshMsg struct{}
 
 func autoRefreshTickCmd(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return autoRefreshTickMsg{} })
@@ -338,10 +339,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case autoRefreshTickMsg:
 		var cmd tea.Cmd
-		if len(m.devices) > 0 {
-			cmd = refreshAllCmd(m.cli, m.devices)
+		if len(m.devices) > 0 && !m.anyDeviceBusy() {
+			cmd = m.beginRefresh()
 		}
 		return m, tea.Batch(cmd, autoRefreshTickCmd(m.refreshInterval))
+
+	case initialRefreshMsg:
+		if len(m.devices) == 0 || m.anyDeviceBusy() {
+			return m, nil
+		}
+		return m, m.beginRefresh()
 
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
@@ -456,6 +463,12 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q":
 		return m, tea.Quit
+	case "esc":
+		if m.filterQuery != "" {
+			m.filterQuery = ""
+			m.filterInput.SetValue("")
+			m.cursor = 0
+		}
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
@@ -474,7 +487,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.devices) == 0 {
 			break
 		}
-		return m, refreshAllCmd(m.cli, m.devices)
+		return m, m.beginRefresh()
 	case "r":
 		i := m.selectedDeviceIndex()
 		if i < 0 {
@@ -595,20 +608,36 @@ func fuzzyMatch(query, target string) bool {
 	return qi == len(query)
 }
 
-// targetIndices returns the multi-selected device indices, or just the
-// cursor's device if nothing is selected — used by deploy/sync-logs/delete
-// so those keys transparently batch across a selection made with space.
+// targetIndices returns visible multi-selected device indices, or just the
+// cursor's device if no visible device is selected. Filtering must never
+// leave an invisible device as the target of a destructive action.
 func (m Model) targetIndices() []int {
-	if len(m.selected) == 0 {
-		return []int{m.selectedDeviceIndex()}
-	}
 	idx := make([]int, 0, len(m.selected))
-	for i := range m.devices {
+	for _, i := range m.visibleIndices() {
 		if m.selected[i] {
 			idx = append(idx, i)
 		}
 	}
+	if len(idx) == 0 {
+		return []int{m.selectedDeviceIndex()}
+	}
 	return idx
+}
+
+func (m Model) anyDeviceBusy() bool {
+	for _, device := range m.devices {
+		if device.busy {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Model) beginRefresh() tea.Cmd {
+	for i := range m.devices {
+		m.devices[i].busy = true
+	}
+	return refreshAllCmd(m.cli, m.devices)
 }
 
 // updateFilterInput handles keystrokes while the '/' fuzzy-filter query is
@@ -668,7 +697,7 @@ func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if msg.Action != tea.MouseActionPress {
 			return m, nil
 		}
-		row := msg.Y - m.deviceListTop()
+		row := msg.Y + m.mouseViewportOffset() - m.deviceListTop()
 		if row >= 0 && row < len(m.visibleIndices()) {
 			m.cursor = row
 		}
@@ -689,6 +718,13 @@ func (m Model) deviceListTop() int {
 		top += 2 // "No devices configured yet." + hint line
 	}
 	return top
+}
+
+func (m Model) mouseViewportOffset() int {
+	if m.height <= 0 {
+		return 0
+	}
+	return max(0, lipgloss.Height(m.View())-m.height)
 }
 
 func promptLabel(base string, count int) string {

@@ -338,15 +338,27 @@ func TestFilterNarrowsListAndCursor(t *testing.T) {
 		t.Fatalf("expected cursor to resolve to steam-deck, got index %d", i)
 	}
 
-	// esc while re-editing clears the filter entirely
-	m = sendKey(m, "/")
+	// esc clears an applied filter directly from normal browsing
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = updated.(Model)
 	if m.filterQuery != "" || m.filterEditing {
 		t.Fatalf("expected filter cleared after esc, got query=%q editing=%v", m.filterQuery, m.filterEditing)
 	}
+
 	if len(m.visibleIndices()) != 3 {
 		t.Fatalf("expected all 3 devices visible after clearing filter, got %d", len(m.visibleIndices()))
+	}
+}
+
+func TestFilteredActionDoesNotTargetHiddenSelection(t *testing.T) {
+	m := newTestModelNamed(t, "steam-deck", "steam-machine")
+	m.selected[0] = true
+	m.filterQuery = "machine"
+	m.cursor = 0
+
+	targets := m.targetIndices()
+	if len(targets) != 1 || targets[0] != 1 {
+		t.Fatalf("expected visible steam-machine target, got %v", targets)
 	}
 }
 
@@ -390,6 +402,27 @@ func TestMouseClickSelectsDevice(t *testing.T) {
 	if m.cursor != 2 {
 		t.Fatalf("expected clicking the third row to select cursor 2, got %d", m.cursor)
 	}
+
+}
+
+func TestMouseClickAccountsForRendererClipping(t *testing.T) {
+	m := newTestModel(t, 4)
+	m.height = 5
+	m.log = []string{"one", "two", "three", "four", "five", "six", "seven", "eight"}
+	offset := m.mouseViewportOffset()
+	if offset == 0 {
+		t.Fatal("expected a clipped view")
+	}
+	displayedRow := m.deviceListTop() + 2 - offset
+	updated, _ := m.Update(tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+		Y:      displayedRow,
+	})
+	m = updated.(Model)
+	if m.cursor != 2 {
+		t.Fatalf("expected clipped click to select cursor 2, got %d", m.cursor)
+	}
 }
 
 func TestMouseIgnoredDuringPrompt(t *testing.T) {
@@ -404,10 +437,23 @@ func TestMouseIgnoredDuringPrompt(t *testing.T) {
 
 func TestAutoRefreshTickReschedulesAndRefreshes(t *testing.T) {
 	m := newTestModel(t, 1)
+	m.devices[0].busy = false
 	m.refreshInterval = 30 * time.Second
 	updated, cmd := m.Update(autoRefreshTickMsg{})
-	_ = updated.(Model)
+	m = updated.(Model)
 	if cmd == nil {
 		t.Fatalf("expected a batched command from an auto-refresh tick")
+	}
+	if !m.devices[0].busy {
+		t.Fatal("expected auto-refresh to mark the device busy")
+	}
+
+	updated, cmd = m.Update(autoRefreshTickMsg{})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected an in-flight tick to keep the timer scheduled")
+	}
+	if !m.devices[0].busy {
+		t.Fatal("expected overlapping auto-refresh to remain suppressed")
 	}
 }
