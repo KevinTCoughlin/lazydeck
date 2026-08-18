@@ -26,6 +26,7 @@ run: build
 # Run the Go unit tests.
 test:
     go test ./...
+    cd {{python_dir}} && uv run python -m unittest test_cli.py
 
 # Full lint pass: golangci-lint (falls back to go vet if not installed),
 # ruff (falls back to py_compile if not installed), plus gofmt.

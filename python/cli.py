@@ -123,7 +123,7 @@ def cmd_deploy(args: argparse.Namespace) -> None:
     ns.delete_extraneous = args.delete_extraneous
     ns.skip_newer_files = False
     ns.verify_checksums = False
-    ns.filter_args = None
+    ns.filter_args = []
     ns.steam_play_debug = dk.SteamPlayDebug.Disabled
     ns.argv = args.argv or []
     ns.clear_settings = False
@@ -131,6 +131,8 @@ def cmd_deploy(args: argparse.Namespace) -> None:
     ns.set_json = []
     ns.set = []
     ns.deps = None
+    ns.env_vars = {}
+    ns.force_appid = ""
     ns.cancel_signal = NullSignal()
     dk.new_or_ensure_game(ns)
     emit(True, {"deployed": args.name, "directory": str(directory)})
@@ -138,7 +140,9 @@ def cmd_deploy(args: argparse.Namespace) -> None:
 
 def cmd_delete(args: argparse.Namespace) -> None:
     ns = _machine_args(args.machine, args.login)
-    ns.name = args.name
+    ns.gameid = args.name
+    ns.delete_all = False
+    ns.reset_steam_client = False
     dk.delete_title(ns)
     emit(True, {"deleted": args.name})
 

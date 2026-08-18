@@ -1159,7 +1159,9 @@ def new_or_ensure_game(args):
         'gameid': gameid,
         'directory': destdir,
         'argv': args.argv,
+        'env': args.env_vars,
         'settings': {},
+        'force_appid': args.force_appid,
     }
 
     parse_settings_arguments(jsonobject, args)
