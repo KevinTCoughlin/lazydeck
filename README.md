@@ -106,6 +106,32 @@ Then run:
 just run    # builds (if needed) and launches the TUI
 ```
 
+### Custom keybindings/commands (config.yml)
+
+Optionally edit `~/.config/lazydeck/config.yml` (created for you on first
+run, commented out) to bind extra keys to arbitrary shell commands run
+against the selected device(s) — lazygit-style, without forking lazydeck.
+This file composes with `devices.toml`; it does not replace it.
+
+```yaml
+customCommands:
+  - key: "p"
+    name: "ping device"
+    command: "ping -c 3 {{.Machine}}"
+  - key: "u"
+    name: "uptime"
+    command: "ssh {{.Login}}@{{.Machine}} uptime"
+```
+
+Commands run via `sh -c` and may reference `{{.Name}}`, `{{.Machine}}`, and
+`{{.Login}}` from the targeted device. LazyDeck passes those values as
+positional shell arguments rather than source text, so device fields cannot
+inject additional shell commands. Like `d`/`l`/`x`, a custom command runs against
+every multi-selected device (`space`) if any are selected, otherwise just
+the one under the cursor. Keys that collide with a built-in binding (see
+the table below) are ignored so custom commands can never shadow lazydeck's
+own behavior; the custom binding also shows up in the `?` help screen.
+
 ### Recording a real-device demo
 
 From the repository root, with a paired Deck configured in

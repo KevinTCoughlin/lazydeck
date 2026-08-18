@@ -444,6 +444,7 @@ func TestAutoRefreshTickReschedulesAndRefreshes(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected a batched command from an auto-refresh tick")
 	}
+
 	if !m.devices[0].busy {
 		t.Fatal("expected auto-refresh to mark the device busy")
 	}
@@ -455,5 +456,63 @@ func TestAutoRefreshTickReschedulesAndRefreshes(t *testing.T) {
 	}
 	if !m.devices[0].busy {
 		t.Fatal("expected overlapping auto-refresh to remain suppressed")
+	}
+}
+
+func TestCustomCommandDispatchUsesDeviceAsArgument(t *testing.T) {
+	cfg := &config.Config{Devices: []config.Device{{
+		Name: "dev", Machine: "$(printf INJECTED)", Login: "deck",
+	}}}
+	cli, err := client.New()
+	if err != nil {
+		t.Fatalf("client.New: %v", err)
+	}
+	userCfg := &config.UserConfig{CustomCommands: []config.CustomCommand{{
+		Key: "p", Name: "print machine", Command: `printf "%s" "{{.Machine}}"`,
+	}}}
+	m := NewWithUserConfig(cli, cfg, "", userCfg)
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	m = updated.(Model)
+	if cmd == nil || !m.devices[0].busy {
+		t.Fatal("expected custom command to run and mark device busy")
+	}
+	done, ok := cmd().(customCmdDoneMsg)
+	if !ok {
+		t.Fatalf("expected customCmdDoneMsg")
+	}
+	if done.err != nil {
+		t.Fatalf("custom command failed: %v", done.err)
+	}
+	if done.output != "$(printf INJECTED)" {
+		t.Fatalf("device field was interpreted as shell code: %q", done.output)
+	}
+}
+
+func TestCustomCommandOutputIsBounded(t *testing.T) {
+	command := config.CustomCommand{
+		Key: "p", Name: "verbose", Command: "yes x | head -c 10000",
+	}
+	done := customCommandCmd(0, config.Device{}, command)().(customCmdDoneMsg)
+	if done.err != nil {
+		t.Fatalf("custom command failed: %v", done.err)
+	}
+	if len(done.output) > 4096 {
+		t.Fatalf("expected bounded output, got %d bytes", len(done.output))
+	}
+}
+
+func TestCustomCommandCannotShadowReservedKey(t *testing.T) {
+	cfg := &config.Config{Devices: []config.Device{{Name: "dev", Machine: "deck.local"}}}
+	cli, err := client.New()
+	if err != nil {
+		t.Fatalf("client.New: %v", err)
+	}
+	userCfg := &config.UserConfig{CustomCommands: []config.CustomCommand{{
+		Key: "/", Name: "shadow filter", Command: "echo nope",
+	}}}
+	m := NewWithUserConfig(cli, cfg, "", userCfg)
+	if len(m.customCmds) != 0 {
+		t.Fatalf("reserved key was accepted: %+v", m.customCmds)
 	}
 }
