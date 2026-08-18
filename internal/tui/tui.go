@@ -8,9 +8,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -113,6 +116,17 @@ type Model struct {
 	filterEditing bool
 	filterQuery   string
 	filterInput   textinput.Model
+
+	customCmds     []config.CustomCommand
+	customCmdIndex map[string]config.CustomCommand
+}
+
+var reservedKeys = map[string]bool{
+	"ctrl+c": true, "q": true, "esc": true,
+	"up": true, "k": true, "down": true, "j": true,
+	"/": true, "s": true, "r": true, " ": true,
+	"d": true, "l": true, "x": true, "g": true, "f": true, "a": true,
+	"?": true, "enter": true,
 }
 
 // wizardState drives the "a" (add device) flow: mDNS-discover devices, let
@@ -133,6 +147,10 @@ func New(cli *client.Client, cfg *config.Config) Model {
 // path disables the wizard's save step (devices are still addable in
 // memory for the running session, just not persisted).
 func NewWithPath(cli *client.Client, cfg *config.Config, path string) Model {
+	return NewWithUserConfig(cli, cfg, path, nil)
+}
+
+func NewWithUserConfig(cli *client.Client, cfg *config.Config, path string, userCfg *config.UserConfig) Model {
 	devices := make([]deviceState, len(cfg.Devices))
 	for i, d := range cfg.Devices {
 		devices[i] = deviceState{dev: d, statusMsg: "unknown (press s to refresh)"}
@@ -150,6 +168,20 @@ func NewWithPath(cli *client.Client, cfg *config.Config, path string) Model {
 	if cfg.RefreshIntervalSeconds > 0 {
 		interval = time.Duration(cfg.RefreshIntervalSeconds) * time.Second
 	}
+	customCmdIndex := make(map[string]config.CustomCommand)
+	var customCmds []config.CustomCommand
+	if userCfg != nil {
+		for _, command := range userCfg.CustomCommands {
+			if command.Key == "" || reservedKeys[command.Key] {
+				continue
+			}
+			if _, duplicate := customCmdIndex[command.Key]; duplicate {
+				continue
+			}
+			customCmdIndex[command.Key] = command
+			customCmds = append(customCmds, command)
+		}
+	}
 	return Model{
 		cli:             cli,
 		devices:         devices,
@@ -160,6 +192,8 @@ func NewWithPath(cli *client.Client, cfg *config.Config, path string) Model {
 		configPath:      path,
 		cfg:             cfg,
 		refreshInterval: interval,
+		customCmds:      customCmds,
+		customCmdIndex:  customCmdIndex,
 	}
 }
 
@@ -324,6 +358,65 @@ type shellExitedMsg struct {
 	err   error
 }
 
+type customCmdDoneMsg struct {
+	index  int
+	name   string
+	output string
+	err    error
+}
+
+type tailBuffer struct {
+	mu    sync.Mutex
+	data  []byte
+	limit int
+}
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.data = append(b.data, p...)
+	if len(b.data) > b.limit {
+		b.data = append([]byte(nil), b.data[len(b.data)-b.limit:]...)
+	}
+	return len(p), nil
+}
+
+func (b *tailBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.data)
+}
+
+func customCommandCmd(index int, dev config.Device, custom config.CustomCommand) tea.Cmd {
+	return func() tea.Msg {
+		expanded, err := custom.Expand(dev)
+		if err != nil {
+			return customCmdDoneMsg{index: index, name: custom.Name, err: err}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "sh", "-c", expanded, "lazydeck", dev.Name, dev.Machine, dev.Login)
+		cmd.Env = os.Environ()
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.WaitDelay = 2 * time.Second
+		cmd.Cancel = func() error {
+			if cmd.Process == nil {
+				return os.ErrProcessDone
+			}
+			err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			if errors.Is(err, syscall.ESRCH) {
+				return os.ErrProcessDone
+			}
+			return err
+		}
+		output := &tailBuffer{limit: 4096}
+		cmd.Stdout = output
+		cmd.Stderr = output
+		err = cmd.Run()
+		return customCmdDoneMsg{index: index, name: custom.Name, output: output.String(), err: err}
+	}
+}
+
 // --- update ---
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -388,6 +481,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.log = append(m.log, fmt.Sprintf("%s: %s OK", name, msg.action))
 			// re-check status after a successful action
 			return m, refreshOneCmd(m.cli, msg.index, m.devices[msg.index].dev)
+		}
+		return m, nil
+
+	case customCmdDoneMsg:
+		m.devices[msg.index].busy = false
+		name := m.devices[msg.index].dev.Name
+		output := strings.TrimSpace(msg.output)
+		if msg.err != nil {
+			if output != "" {
+				m.log = append(m.log, fmt.Sprintf("%s: %s FAILED: %v: %s", name, msg.name, msg.err, truncate(output, 200)))
+			} else {
+				m.log = append(m.log, fmt.Sprintf("%s: %s FAILED: %v", name, msg.name, msg.err))
+			}
+		} else if output == "" {
+			m.log = append(m.log, fmt.Sprintf("%s: %s OK", name, msg.name))
+		} else {
+			m.log = append(m.log, fmt.Sprintf("%s: %s: %s", name, msg.name, truncate(output, 200)))
 		}
 		return m, nil
 
@@ -552,8 +662,27 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.devices[i].busy = true
 		m.log = append(m.log, fmt.Sprintf("opening remote shell to %s ...", d.dev.Name))
 		return m, connectionInfoCmd(m.cli, i, d.dev)
+	default:
+		if command, ok := m.customCmdIndex[msg.String()]; ok {
+			return m.runCustomCommand(command)
+		}
 	}
 	return m, nil
+}
+
+func (m Model) runCustomCommand(command config.CustomCommand) (tea.Model, tea.Cmd) {
+	indices := m.targetIndices()
+	cmds := make([]tea.Cmd, 0, len(indices))
+	for _, i := range indices {
+		if i < 0 {
+			continue
+		}
+		device := m.devices[i]
+		m.devices[i].busy = true
+		m.log = append(m.log, fmt.Sprintf("running %q on %s ...", command.Name, device.dev.Name))
+		cmds = append(cmds, customCommandCmd(i, device.dev, command))
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // visibleIndices returns the indices into m.devices that pass the current
@@ -1011,6 +1140,9 @@ func (m Model) helpView() string {
 	b.WriteString(titleStyle.Render("lazydeck — keybindings") + "\n\n")
 	for _, k := range helpKeys {
 		fmt.Fprintf(&b, "  %-10s %s\n", k.key, k.desc)
+	}
+	for _, command := range m.customCmds {
+		fmt.Fprintf(&b, "  %-10s %s\n", command.Key, "custom: "+command.Name)
 	}
 	b.WriteString("\n" + helpStyle.Render("press any key to go back"))
 	return b.String()

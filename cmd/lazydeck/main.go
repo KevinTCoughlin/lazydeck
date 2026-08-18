@@ -36,7 +36,16 @@ func run() error {
 		return err
 	}
 
-	m := tui.NewWithPath(cli, cfg, path)
+	userCfgPath, err := config.UserConfigPath()
+	if err != nil {
+		return err
+	}
+	userCfg, err := config.LoadUserConfig(userCfgPath)
+	if err != nil {
+		return err
+	}
+
+	m := tui.NewWithUserConfig(cli, cfg, path, userCfg)
 	p := tea.NewProgram(m, tea.WithMouseCellMotion())
 	_, err = p.Run()
 	return err

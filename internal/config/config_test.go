@@ -115,3 +115,93 @@ func TestSaveAndAddDeviceRoundTrip(t *testing.T) {
 		t.Error("expected error adding duplicate device name, got nil")
 	}
 }
+
+func TestLoadUserConfigCreatesStarterAndParses(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("LoadUserConfig (starter): %v", err)
+	}
+	if len(cfg.CustomCommands) != 0 {
+		t.Fatalf("expected empty starter user config, got %d custom commands", len(cfg.CustomCommands))
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected starter file to be written: %v", err)
+	}
+
+	content := `
+customCommands:
+  - key: "p"
+    name: "ping device"
+    command: "ping -c 3 {{.Machine}}"
+  - key: "u"
+    name: "uptime"
+    command: "ssh {{.Login}}@{{.Machine}} uptime"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err = LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("LoadUserConfig (populated): %v", err)
+	}
+	if len(cfg.CustomCommands) != 2 {
+		t.Fatalf("expected 2 custom commands, got %d", len(cfg.CustomCommands))
+	}
+	if cfg.CustomCommands[0].Key != "p" || cfg.CustomCommands[0].Command != "ping -c 3 {{.Machine}}" {
+		t.Errorf("unexpected first custom command: %+v", cfg.CustomCommands[0])
+	}
+	if cfg.CustomCommands[1].Name != "uptime" {
+		t.Errorf("unexpected second custom command: %+v", cfg.CustomCommands[1])
+	}
+}
+
+func TestCustomCommandExpand(t *testing.T) {
+	c := CustomCommand{Key: "p", Name: "ping", Command: "ping -c 3 {{.Machine}} # {{.Name}} {{.Login}}"}
+	d := Device{Name: "steam-deck", Machine: "steamdeck.local", Login: "deck"}
+
+	got, err := c.Expand(d)
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+	want := "ping -c 3 ${2} # ${1} ${3}"
+	if got != want {
+		t.Errorf("Expand() = %q, want %q", got, want)
+	}
+}
+
+func TestCustomCommandExpandUsesPositionalParameters(t *testing.T) {
+	c := CustomCommand{Key: "p", Name: "ping", Command: "echo {{.Name}}"}
+	d := Device{Name: "evil'; rm -rf /; echo 'pwned"}
+
+	got, err := c.Expand(d)
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+	want := `echo ${1}`
+	if got != want {
+		t.Errorf("Expand() = %q, want %q", got, want)
+	}
+
+}
+
+func TestLoadUserConfigMissingUnwritableStarterIsOptional(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "config.yml")
+	cfg, err := LoadUserConfig(path)
+	if err != nil {
+		t.Fatalf("optional missing config should not fail startup: %v", err)
+	}
+	if len(cfg.CustomCommands) != 0 {
+		t.Fatalf("expected empty optional config, got %+v", cfg)
+	}
+}
+
+func TestCustomCommandExpandInvalidTemplate(t *testing.T) {
+	c := CustomCommand{Key: "p", Name: "bad", Command: "echo {{.Nope"}
+	if _, err := c.Expand(Device{}); err == nil {
+		t.Fatal("expected error for invalid template, got nil")
+	}
+}
