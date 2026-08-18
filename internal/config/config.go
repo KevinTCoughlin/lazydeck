@@ -123,7 +123,7 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer dirFile.Close()
+	defer func() { _ = dirFile.Close() }()
 	if err := dirFile.Sync(); err != nil && !errors.Is(err, syscall.EINVAL) && !errors.Is(err, syscall.ENOTSUP) {
 		return err
 	}
