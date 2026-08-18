@@ -106,6 +106,10 @@ Then run:
 just run    # builds (if needed) and launches the TUI
 ```
 
+The main screen uses separate **Devices**, **Detail**, and **Activity**
+panels. They render side-by-side in wide terminals and stack vertically in
+narrow terminals; long fleets are paginated around the current cursor.
+
 ### Custom keybindings/commands (config.yml)
 
 Optionally edit `~/.config/lazydeck/config.yml` (created for you on first

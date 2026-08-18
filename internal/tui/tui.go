@@ -826,9 +826,11 @@ func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if msg.Action != tea.MouseActionPress {
 			return m, nil
 		}
-		row := msg.Y + m.mouseViewportOffset() - m.deviceListTop()
-		if row >= 0 && row < len(m.visibleIndices()) {
-			m.cursor = row
+		row := msg.Y - m.deviceListTop()
+		visible := m.visibleIndices()
+		start, end := m.deviceWindow(len(visible))
+		if row >= 0 && start+row < end {
+			m.cursor = start + row
 		}
 	}
 	return m, nil
@@ -839,21 +841,7 @@ func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 // must stay in sync with the header lines View() writes before the device
 // list.
 func (m Model) deviceListTop() int {
-	top := 2 // title line + blank line
-	if m.filterEditing || m.filterQuery != "" {
-		top++
-	}
-	if len(m.devices) == 0 {
-		top += 2 // "No devices configured yet." + hint line
-	}
-	return top
-}
-
-func (m Model) mouseViewportOffset() int {
-	if m.height <= 0 {
-		return 0
-	}
-	return max(0, lipgloss.Height(m.View())-m.height)
+	return m.headerHeight() + 2 // panel border + "DEVICES" title
 }
 
 func promptLabel(base string, count int) string {
@@ -1032,25 +1020,138 @@ func (m Model) View() string {
 		return m.wizardView()
 	}
 
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("lazydeck") + dimStyle.Render("  — Steam devkit fleet manager") + "\n\n")
+	header := m.headerView()
+	footer := m.footerView()
+	layout := m.panelLayout(header, footer)
+	devicePanel := m.devicePanel(layout.deviceWidth, layout.deviceHeight)
+	detailPanel := m.detailPanel(layout.detailWidth, layout.detailHeight)
+	logPanel := m.logPanel(layout.logWidth, layout.logHeight)
 
-	if m.filterEditing {
-		b.WriteString(promptStyle.Render(m.filterInput.View()) + "\n")
-	} else if m.filterQuery != "" {
-		b.WriteString(promptStyle.Render("/"+m.filterQuery) + dimStyle.Render("  (esc to clear)") + "\n")
+	var body string
+	if layout.wide {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, devicePanel, " ", detailPanel, " ", logPanel)
+	} else {
+		body = lipgloss.JoinVertical(lipgloss.Left, devicePanel, detailPanel, logPanel)
+	}
+	return header + "\n" + body + "\n" + footer
+}
+
+type panelGeometry struct {
+	wide                                  bool
+	deviceWidth, detailWidth, logWidth    int
+	deviceHeight, detailHeight, logHeight int
+}
+
+func (m Model) panelLayout(header, footer string) panelGeometry {
+	width, height := m.width, m.height
+	if width <= 0 {
+		width = 120
+	}
+	if height <= 0 {
+		height = 30
+	}
+	bodyHeight := max(6, height-lipgloss.Height(header)-lipgloss.Height(footer)-2)
+	if width >= 100 {
+		deviceWidth := max(28, width*30/100)
+		detailWidth := max(28, width*30/100)
+		logWidth := max(32, width-deviceWidth-detailWidth-2)
+		return panelGeometry{
+			wide:        true,
+			deviceWidth: deviceWidth, detailWidth: detailWidth, logWidth: logWidth,
+			deviceHeight: bodyHeight, detailHeight: bodyHeight, logHeight: bodyHeight,
+		}
 	}
 
+	usableHeight := max(9, bodyHeight)
+	deviceHeight := max(6, usableHeight*40/100)
+	detailHeight := max(6, usableHeight*30/100)
+	logHeight := max(6, usableHeight-deviceHeight-detailHeight)
+	return panelGeometry{
+		deviceWidth: width, detailWidth: width, logWidth: width,
+		deviceHeight: deviceHeight, detailHeight: detailHeight, logHeight: logHeight,
+	}
+}
+
+func (m Model) headerView() string {
+	header := titleStyle.Render("lazydeck") + dimStyle.Render("  — Steam devkit fleet manager")
+	if m.filterEditing {
+		return header + "\n" + promptStyle.Render(m.filterInput.View())
+	}
+	if m.filterQuery != "" {
+		return header + "\n" + promptStyle.Render("/"+m.filterQuery) + dimStyle.Render("  (esc to clear)")
+	}
+	return header
+}
+
+func (m Model) headerHeight() int {
+	return lipgloss.Height(m.headerView())
+}
+
+func (m Model) footerView() string {
+	if m.step == promptDeleteConfirm {
+		label := fmt.Sprintf("Delete %s from %d device(s)? This cannot be undone.", m.pendingName, len(m.promptIndices))
+		return promptStyle.Render(label) + "\n" + helpStyle.Render("y confirm · any other key cancels")
+	}
+	if m.step != promptNone {
+		return promptStyle.Render(m.input.Placeholder) + " " + m.input.View() + "\n" + helpStyle.Render("enter confirm · esc cancel")
+	}
+	if m.width > 0 && m.width < 100 {
+		return helpStyle.Render("? help · ↑/↓ select · / filter · s refresh · q quit")
+	}
+	return helpStyle.Render("? help · ↑/↓ select · / filter · space multi-select · a add device · s refresh · enter shell · q quit")
+}
+
+func renderPanel(title, content string, width, height int) string {
+	maxContentLines := max(0, height-3)
+	contentLines := strings.Split(content, "\n")
+	if len(contentLines) > maxContentLines {
+		contentLines = contentLines[:maxContentLines]
+		if maxContentLines > 0 {
+			contentLines[maxContentLines-1] = dimStyle.Render("…")
+		}
+		content = strings.Join(contentLines, "\n")
+	}
+	body := titleStyle.Render(title)
+	if content != "" {
+		body += "\n" + content
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("238")).
+		Width(max(1, width-2)).
+		Height(max(1, height-2)).
+		Render(body)
+}
+
+func (m Model) deviceWindow(total int) (int, int) {
+	rows := max(1, m.panelLayout(m.headerView(), m.footerView()).deviceHeight-3)
+	if total <= rows {
+		return 0, total
+	}
+	start := max(0, m.cursor-rows+1)
+	start = min(start, total-rows)
+	return start, start + rows
+}
+
+func (m Model) devicePanel(width, height int) string {
 	visible := m.visibleIndices()
 	if len(m.devices) == 0 {
-		b.WriteString("No devices configured yet.\n")
-		b.WriteString(dimStyle.Render("Press 'a' to discover devkits on the LAN, or add a [[device]] block to devices.toml by hand.") + "\n")
-	} else if len(visible) == 0 {
-		b.WriteString(dimStyle.Render("No devices match filter "+strconv.Quote(m.filterQuery)) + "\n")
+		return renderPanel("DEVICES", dimStyle.Render("No devices configured.\nPress 'a' to discover one."), width, height)
+	}
+	if len(visible) == 0 {
+		return renderPanel("DEVICES", dimStyle.Render("No matches for "+strconv.Quote(m.filterQuery)), width, height)
 	}
 
-	for row, i := range visible {
-		d := m.devices[i]
+	start, end := m.deviceWindow(len(visible))
+	title := "DEVICES"
+	if start > 0 || end < len(visible) {
+		title = fmt.Sprintf("DEVICES  %d-%d/%d", start+1, end, len(visible))
+	}
+	lines := make([]string, 0, end-start)
+	nameWidth := max(8, width-10)
+	for row := start; row < end; row++ {
+		index := visible[row]
+		device := m.devices[index]
 		cursor := "  "
 		style := lipgloss.NewStyle()
 		if row == m.cursor {
@@ -1058,44 +1159,66 @@ func (m Model) View() string {
 			style = selectedStyle
 		}
 		mark := " "
-		if m.selected[i] {
+		if m.selected[index] {
 			mark = "*"
 		}
-		state, stateStyle := m.renderState(d)
-		if d.busy {
-			state = m.spinner.View() + " " + state
+		state, stateStyle := m.renderState(device)
+		symbol := "[+]"
+		if device.busy {
+			symbol = "[~]"
+		} else if device.lastErr != nil {
+			symbol = "[!]"
+		} else if strings.HasPrefix(state, "unknown") {
+			symbol = "[?]"
 		}
-		line := fmt.Sprintf("%s%s%-24s %s", cursor, mark, d.dev.Name, stateStyle.Render(state))
-		if d.lastErr != nil {
-			line += "  " + errStyle.Render("("+truncate(d.lastErr.Error(), 40)+")")
-		}
-		b.WriteString(style.Render(line) + "\n")
+		line := fmt.Sprintf("%s%s%-*s %s", cursor, mark, nameWidth, truncate(device.dev.Name, nameWidth), stateStyle.Render(symbol))
+		lines = append(lines, style.Render(line))
 	}
+	return renderPanel(title, strings.Join(lines, "\n"), width, height)
+}
 
-	b.WriteString("\n" + dimStyle.Render(strings.Repeat("─", 60)) + "\n")
-	start := 0
-	if len(m.log) > 8 {
-		start = len(m.log) - 8
+func (m Model) detailPanel(width, height int) string {
+	index := m.selectedDeviceIndex()
+	if index < 0 {
+		return renderPanel("DETAIL", dimStyle.Render("No device selected."), width, height)
 	}
+	device := m.devices[index]
+	status, statusStyle := m.renderState(device)
+	if device.busy {
+		status = m.spinner.View() + " " + status
+	}
+	valueWidth := max(12, width-12)
+	login := device.dev.Login
+	if login == "" {
+		login = "auto"
+	}
+	lines := []string{
+		dimStyle.Render("Name") + "     " + truncate(device.dev.Name, valueWidth),
+		dimStyle.Render("Machine") + "  " + truncate(device.dev.Machine, valueWidth),
+		dimStyle.Render("Login") + "    " + truncate(login, valueWidth),
+		dimStyle.Render("Status") + "   " + statusStyle.Render(truncate(status, valueWidth)),
+	}
+	if device.lastErr != nil {
+		lines = append(lines, dimStyle.Render("Error")+"    "+errStyle.Render(truncate(device.lastErr.Error(), valueWidth)))
+	}
+	if len(m.selected) > 0 {
+		lines = append(lines, "", dimStyle.Render(fmt.Sprintf("%d device(s) selected for batch actions", len(m.targetIndices()))))
+	}
+	return renderPanel("DETAIL", strings.Join(lines, "\n"), width, height)
+}
+
+func (m Model) logPanel(width, height int) string {
+	rows := max(1, height-3)
+	start := max(0, len(m.log)-rows)
+	if len(m.log) == 0 {
+		return renderPanel("ACTIVITY", dimStyle.Render("No activity yet."), width, height)
+	}
+	lines := make([]string, 0, len(m.log)-start)
+	lineWidth := max(12, width-4)
 	for _, entry := range m.log[start:] {
-		b.WriteString(dimStyle.Render(entry) + "\n")
+		lines = append(lines, dimStyle.Render(truncate(entry, lineWidth)))
 	}
-
-	if m.step == promptDeleteConfirm {
-		label := fmt.Sprintf("Delete %s from %d device(s)? This cannot be undone.", m.pendingName, len(m.promptIndices))
-		b.WriteString("\n" + promptStyle.Render(label) + "\n")
-		b.WriteString(helpStyle.Render("y confirm · any other key cancels"))
-		return b.String()
-	}
-
-	if m.step != promptNone {
-		b.WriteString("\n" + promptStyle.Render(m.input.Placeholder) + "\n" + m.input.View() + "\n")
-		b.WriteString(helpStyle.Render("enter confirm · esc cancel"))
-		return b.String()
-	}
-
-	b.WriteString("\n" + helpStyle.Render("? help · ↑/↓ select · / filter · space multi-select · a add device · s refresh · enter shell · q quit"))
-	return b.String()
+	return renderPanel("ACTIVITY", strings.Join(lines, "\n"), width, height)
 }
 
 // renderState returns the device's one-line status text plus the style to
