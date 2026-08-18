@@ -20,6 +20,12 @@ type Device struct {
 
 type Config struct {
 	Devices []Device `toml:"device"`
+
+	// RefreshIntervalSeconds, when > 0, enables periodic background
+	// refresh of every device's status on that interval. 0 (the
+	// default) disables auto-refresh; status is only refreshed on
+	// startup and on the manual 's' keybinding.
+	RefreshIntervalSeconds int `toml:"refresh_interval_seconds"`
 }
 
 // DefaultPath returns ~/.config/lazydeck/devices.toml, creating the parent
@@ -86,6 +92,10 @@ func writeStarter(path string) error {
 # One [[device]] block per Steam Machine / Steam Deck devkit you deploy to.
 # "machine" can be a hostname, IP address, or the mDNS service name shown
 # by the official SteamOS Devkit Client during pairing.
+
+# Uncomment to auto-refresh every device's status on an interval (seconds).
+# Off by default; status still refreshes on startup and on the 's' key.
+# refresh_interval_seconds = 30
 
 # [[device]]
 # name = "steam-machine"

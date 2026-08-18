@@ -47,6 +47,43 @@ machine = "steamdeck.local"
 	}
 }
 
+func TestRefreshIntervalSecondsParses(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devices.toml")
+
+	content := `
+refresh_interval_seconds = 30
+
+[[device]]
+name = "steam-deck"
+machine = "steamdeck.local"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.RefreshIntervalSeconds != 30 {
+		t.Fatalf("expected RefreshIntervalSeconds=30, got %d", cfg.RefreshIntervalSeconds)
+	}
+}
+
+func TestRefreshIntervalSecondsDefaultsToOff(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devices.toml")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load (starter): %v", err)
+	}
+	if cfg.RefreshIntervalSeconds != 0 {
+		t.Fatalf("expected auto-refresh off by default, got %d", cfg.RefreshIntervalSeconds)
+	}
+}
+
 func TestSaveAndAddDeviceRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "devices.toml")

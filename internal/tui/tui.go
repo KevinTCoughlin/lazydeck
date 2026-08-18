@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,6 +102,17 @@ type Model struct {
 	configPath string
 	cfg        *config.Config
 	wizard     wizardState
+
+	// refreshInterval, when > 0, drives a background tea.Tick that
+	// re-refreshes every device's status on a schedule (see issue #3).
+	refreshInterval time.Duration
+
+	// filterEditing is true while the user is actively typing a '/'
+	// fuzzy-filter query; filterQuery is the last-applied query (kept
+	// after Enter so the filter stays active while browsing).
+	filterEditing bool
+	filterQuery   string
+	filterInput   textinput.Model
 }
 
 // wizardState drives the "a" (add device) flow: mDNS-discover devices, let
@@ -128,16 +140,26 @@ func NewWithPath(cli *client.Client, cfg *config.Config, path string) Model {
 	ti := textinput.New()
 	ti.CharLimit = 256
 	ti.Width = 60
+	fi := textinput.New()
+	fi.CharLimit = 128
+	fi.Width = 40
+	fi.Prompt = "/"
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
+	var interval time.Duration
+	if cfg.RefreshIntervalSeconds > 0 {
+		interval = time.Duration(cfg.RefreshIntervalSeconds) * time.Second
+	}
 	return Model{
-		cli:        cli,
-		devices:    devices,
-		input:      ti,
-		selected:   make(map[int]bool),
-		spinner:    sp,
-		configPath: path,
-		cfg:        cfg,
+		cli:             cli,
+		devices:         devices,
+		input:           ti,
+		filterInput:     fi,
+		selected:        make(map[int]bool),
+		spinner:         sp,
+		configPath:      path,
+		cfg:             cfg,
+		refreshInterval: interval,
 	}
 }
 
@@ -146,7 +168,19 @@ func (m Model) Init() tea.Cmd {
 	if len(m.devices) > 0 {
 		cmds = append(cmds, refreshAllCmd(m.cli, m.devices))
 	}
+	if m.refreshInterval > 0 {
+		cmds = append(cmds, autoRefreshTickCmd(m.refreshInterval))
+	}
 	return tea.Batch(cmds...)
+}
+
+// autoRefreshTickMsg fires on the configured refresh_interval_seconds
+// schedule to periodically re-check every device's status in the
+// background, similar to lazygit/lazydocker's auto-refresh (issue #3).
+type autoRefreshTickMsg struct{}
+
+func autoRefreshTickCmd(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg { return autoRefreshTickMsg{} })
 }
 
 // --- messages ---
@@ -302,12 +336,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
+	case autoRefreshTickMsg:
+		var cmd tea.Cmd
+		if len(m.devices) > 0 {
+			cmd = refreshAllCmd(m.cli, m.devices)
+		}
+		return m, tea.Batch(cmd, autoRefreshTickCmd(m.refreshInterval))
+
+	case tea.MouseMsg:
+		return m.updateMouse(msg)
+
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeHelp:
 			return m.updateHelp(msg)
 		case modeWizard:
 			return m.updateWizard(msg)
+		}
+		if m.filterEditing {
+			return m.updateFilterInput(msg)
 		}
 		if m.step != promptNone {
 			return m.updatePrompt(msg)
@@ -414,57 +461,66 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case "down", "j":
-		if m.cursor < len(m.devices)-1 {
+		if m.cursor < len(m.visibleIndices())-1 {
 			m.cursor++
 		}
+	case "/":
+		m.filterEditing = true
+		m.filterInput.SetValue(m.filterQuery)
+		m.filterInput.CursorEnd()
+		m.filterInput.Focus()
+		return m, nil
 	case "s":
 		if len(m.devices) == 0 {
 			break
 		}
 		return m, refreshAllCmd(m.cli, m.devices)
 	case "r":
-		if len(m.devices) == 0 {
+		i := m.selectedDeviceIndex()
+		if i < 0 {
 			break
 		}
-		d := m.devices[m.cursor]
-		m.devices[m.cursor].busy = true
+		d := m.devices[i]
+		m.devices[i].busy = true
 		m.log = append(m.log, fmt.Sprintf("registering %s ...", d.dev.Name))
-		return m, registerCmd(m.cli, m.cursor, d.dev)
+		return m, registerCmd(m.cli, i, d.dev)
 	case " ":
-		if len(m.devices) == 0 {
+		i := m.selectedDeviceIndex()
+		if i < 0 {
 			break
 		}
-		if m.selected[m.cursor] {
-			delete(m.selected, m.cursor)
+		if m.selected[i] {
+			delete(m.selected, i)
 		} else {
-			m.selected[m.cursor] = true
+			m.selected[i] = true
 		}
 	case "d":
-		if len(m.devices) == 0 {
+		if m.selectedDeviceIndex() < 0 {
 			break
 		}
 		m.promptIndices = m.targetIndices()
 		return m.startPrompt(promptDeployName, promptLabel("gameid to deploy as: ", len(m.promptIndices))), nil
 	case "l":
-		if len(m.devices) == 0 {
+		if m.selectedDeviceIndex() < 0 {
 			break
 		}
 		m.promptIndices = m.targetIndices()
 		return m.startPrompt(promptLogsName, promptLabel("gameid to fetch logs for: ", len(m.promptIndices))), nil
 	case "x":
-		if len(m.devices) == 0 {
+		if m.selectedDeviceIndex() < 0 {
 			break
 		}
 		m.promptIndices = m.targetIndices()
 		return m.startPrompt(promptDeleteName, promptLabel("gameid to delete: ", len(m.promptIndices))), nil
 	case "g":
-		if len(m.devices) == 0 {
+		i := m.selectedDeviceIndex()
+		if i < 0 {
 			break
 		}
-		d := m.devices[m.cursor]
-		m.devices[m.cursor].busy = true
+		d := m.devices[i]
+		m.devices[i].busy = true
 		m.log = append(m.log, fmt.Sprintf("listing games on %s ...", d.dev.Name))
-		return m, listGamesCmd(m.cli, m.cursor, d.dev)
+		return m, listGamesCmd(m.cli, i, d.dev)
 	case "f":
 		m.log = append(m.log, "discovering devkits on the LAN (mDNS, ~4s)...")
 		return m, discoverCmd(m.cli, false)
@@ -475,23 +531,76 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.mode = modeHelp
 	case "enter":
-		if len(m.devices) == 0 {
+		i := m.selectedDeviceIndex()
+		if i < 0 {
 			break
 		}
-		d := m.devices[m.cursor]
-		m.devices[m.cursor].busy = true
+		d := m.devices[i]
+		m.devices[i].busy = true
 		m.log = append(m.log, fmt.Sprintf("opening remote shell to %s ...", d.dev.Name))
-		return m, connectionInfoCmd(m.cli, m.cursor, d.dev)
+		return m, connectionInfoCmd(m.cli, i, d.dev)
 	}
 	return m, nil
 }
 
+// visibleIndices returns the indices into m.devices that pass the current
+// fuzzy filter (see issue #4), in display order. With no filter applied it
+// is simply every device index.
+func (m Model) visibleIndices() []int {
+	if strings.TrimSpace(m.filterQuery) == "" {
+		idx := make([]int, len(m.devices))
+		for i := range idx {
+			idx[i] = i
+		}
+		return idx
+	}
+	idx := make([]int, 0, len(m.devices))
+	for i, d := range m.devices {
+		if fuzzyMatch(m.filterQuery, d.dev.Name) || fuzzyMatch(m.filterQuery, d.dev.Machine) {
+			idx = append(idx, i)
+		}
+	}
+	return idx
+}
+
+// selectedDeviceIndex maps m.cursor (a position within the currently
+// visible/filtered list) back to an index into m.devices, or -1 if no
+// device is visible/selectable.
+func (m Model) selectedDeviceIndex() int {
+	vis := m.visibleIndices()
+	if len(vis) == 0 {
+		return -1
+	}
+	if m.cursor >= len(vis) {
+		return vis[len(vis)-1]
+	}
+	return vis[m.cursor]
+}
+
+// fuzzyMatch reports whether every rune of query appears in target, in
+// order, case-insensitively (a lightweight fzf-style subsequence match). An
+// empty query always matches.
+func fuzzyMatch(query, target string) bool {
+	query = strings.ToLower(query)
+	target = strings.ToLower(target)
+	qi := 0
+	for _, r := range target {
+		if qi == len(query) {
+			break
+		}
+		if r == rune(query[qi]) {
+			qi++
+		}
+	}
+	return qi == len(query)
+}
+
 // targetIndices returns the multi-selected device indices, or just the
-// cursor if nothing is selected — used by deploy/sync-logs/delete so those
-// keys transparently batch across a selection made with space.
+// cursor's device if nothing is selected — used by deploy/sync-logs/delete
+// so those keys transparently batch across a selection made with space.
 func (m Model) targetIndices() []int {
 	if len(m.selected) == 0 {
-		return []int{m.cursor}
+		return []int{m.selectedDeviceIndex()}
 	}
 	idx := make([]int, 0, len(m.selected))
 	for i := range m.devices {
@@ -500,6 +609,86 @@ func (m Model) targetIndices() []int {
 		}
 	}
 	return idx
+}
+
+// updateFilterInput handles keystrokes while the '/' fuzzy-filter query is
+// being actively typed: printable runes/backspace edit the query and
+// live-narrow the device list, up/down still move the cursor within the
+// narrowed results, enter keeps the filter applied and returns to normal
+// browsing, and esc clears the filter entirely.
+func (m Model) updateFilterInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.filterEditing = false
+		m.filterQuery = ""
+		m.filterInput.Blur()
+		m.cursor = 0
+		return m, nil
+	case "enter":
+		m.filterEditing = false
+		m.filterInput.Blur()
+		return m, nil
+	case "up":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+		return m, nil
+	case "down":
+		if m.cursor < len(m.visibleIndices())-1 {
+			m.cursor++
+		}
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.filterInput, cmd = m.filterInput.Update(msg)
+	m.filterQuery = m.filterInput.Value()
+	m.cursor = 0
+	return m, cmd
+}
+
+// updateMouse handles click-to-select and scroll-to-move mouse events (see
+// issue #5): wheel up/down move the cursor like k/j, and a left click on a
+// device row selects it. Mouse input is ignored while an overlay (help,
+// wizard) or a text-entry prompt/filter is active, to avoid surprising
+// interactions with those modal flows.
+func (m Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.mode != modeNormal || m.step != promptNone || m.filterEditing {
+		return m, nil
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case tea.MouseButtonWheelDown:
+		if m.cursor < len(m.visibleIndices())-1 {
+			m.cursor++
+		}
+	case tea.MouseButtonLeft:
+		if msg.Action != tea.MouseActionPress {
+			return m, nil
+		}
+		row := msg.Y - m.deviceListTop()
+		if row >= 0 && row < len(m.visibleIndices()) {
+			m.cursor = row
+		}
+	}
+	return m, nil
+}
+
+// deviceListTop returns the row (0-indexed) the first device line is
+// rendered on in View, so mouse clicks can be mapped back to a device. It
+// must stay in sync with the header lines View() writes before the device
+// list.
+func (m Model) deviceListTop() int {
+	top := 2 // title line + blank line
+	if m.filterEditing || m.filterQuery != "" {
+		top++
+	}
+	if len(m.devices) == 0 {
+		top += 2 // "No devices configured yet." + hint line
+	}
+	return top
 }
 
 func promptLabel(base string, count int) string {
@@ -681,15 +870,25 @@ func (m Model) View() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("lazydeck") + dimStyle.Render("  — Steam devkit fleet manager") + "\n\n")
 
+	if m.filterEditing {
+		b.WriteString(promptStyle.Render(m.filterInput.View()) + "\n")
+	} else if m.filterQuery != "" {
+		b.WriteString(promptStyle.Render("/"+m.filterQuery) + dimStyle.Render("  (esc to clear)") + "\n")
+	}
+
+	visible := m.visibleIndices()
 	if len(m.devices) == 0 {
 		b.WriteString("No devices configured yet.\n")
 		b.WriteString(dimStyle.Render("Press 'a' to discover devkits on the LAN, or add a [[device]] block to devices.toml by hand.") + "\n")
+	} else if len(visible) == 0 {
+		b.WriteString(dimStyle.Render("No devices match filter "+strconv.Quote(m.filterQuery)) + "\n")
 	}
 
-	for i, d := range m.devices {
+	for row, i := range visible {
+		d := m.devices[i]
 		cursor := "  "
 		style := lipgloss.NewStyle()
-		if i == m.cursor {
+		if row == m.cursor {
 			cursor = "> "
 			style = selectedStyle
 		}
@@ -730,7 +929,7 @@ func (m Model) View() string {
 		return b.String()
 	}
 
-	b.WriteString("\n" + helpStyle.Render("? help · ↑/↓ select · space multi-select · a add device · s refresh · enter shell · q quit"))
+	b.WriteString("\n" + helpStyle.Render("? help · ↑/↓ select · / filter · space multi-select · a add device · s refresh · enter shell · q quit"))
 	return b.String()
 }
 
@@ -755,6 +954,8 @@ func (m Model) renderState(d deviceState) (string, lipgloss.Style) {
 
 var helpKeys = []struct{ key, desc string }{
 	{"↑/k, ↓/j", "move cursor"},
+	{"mouse", "click a device to select it, scroll to move the cursor"},
+	{"/", "fuzzy-filter the device list by name/machine (esc clears)"},
 	{"space", "toggle multi-select (batches d/l/x across selection)"},
 	{"s", "refresh status of all devices"},
 	{"r", "register (pair) this workstation's key with the selected device"},

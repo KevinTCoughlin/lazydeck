@@ -37,7 +37,7 @@ func run() error {
 	}
 
 	m := tui.NewWithPath(cli, cfg, path)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithMouseCellMotion())
 	_, err = p.Run()
 	return err
 }
