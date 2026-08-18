@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -297,3 +298,162 @@ func TestAddDeviceWizardDiscoverAndPick(t *testing.T) {
 type errFake struct{}
 
 func (errFake) Error() string { return "boom" }
+
+func newTestModelNamed(t *testing.T, names ...string) Model {
+	t.Helper()
+	cfg := &config.Config{}
+	for _, n := range names {
+		cfg.Devices = append(cfg.Devices, config.Device{Name: n, Machine: "1.2.3.4"})
+	}
+	cli, err := client.New()
+	if err != nil {
+		t.Fatalf("client.New: %v", err)
+	}
+	return New(cli, cfg)
+}
+
+func TestFilterNarrowsListAndCursor(t *testing.T) {
+	m := newTestModelNamed(t, "steam-deck", "steam-machine", "office-pc")
+	m = sendKey(m, "/")
+	if !m.filterEditing {
+		t.Fatalf("expected filterEditing after '/'")
+	}
+	for _, r := range "deck" {
+		m = sendKey(m, string(r))
+	}
+	vis := m.visibleIndices()
+	if len(vis) != 1 || m.devices[vis[0]].dev.Name != "steam-deck" {
+		t.Fatalf("expected only steam-deck visible, got %v", vis)
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.filterEditing {
+		t.Fatalf("expected filter editing to stop after enter")
+	}
+	if m.filterQuery != "deck" {
+		t.Fatalf("expected filter query kept after enter, got %q", m.filterQuery)
+	}
+	if i := m.selectedDeviceIndex(); m.devices[i].dev.Name != "steam-deck" {
+		t.Fatalf("expected cursor to resolve to steam-deck, got index %d", i)
+	}
+
+	// esc clears an applied filter directly from normal browsing
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+	if m.filterQuery != "" || m.filterEditing {
+		t.Fatalf("expected filter cleared after esc, got query=%q editing=%v", m.filterQuery, m.filterEditing)
+	}
+
+	if len(m.visibleIndices()) != 3 {
+		t.Fatalf("expected all 3 devices visible after clearing filter, got %d", len(m.visibleIndices()))
+	}
+}
+
+func TestFilteredActionDoesNotTargetHiddenSelection(t *testing.T) {
+	m := newTestModelNamed(t, "steam-deck", "steam-machine")
+	m.selected[0] = true
+	m.filterQuery = "machine"
+	m.cursor = 0
+
+	targets := m.targetIndices()
+	if len(targets) != 1 || targets[0] != 1 {
+		t.Fatalf("expected visible steam-machine target, got %v", targets)
+	}
+}
+
+func TestFuzzyMatch(t *testing.T) {
+	cases := []struct {
+		query, target string
+		want          bool
+	}{
+		{"", "anything", true},
+		{"dck", "steam-deck", true},
+		{"DECK", "steam-deck", true},
+		{"zzz", "steam-deck", false},
+		{"deckx", "steam-deck", false},
+	}
+	for _, c := range cases {
+		if got := fuzzyMatch(c.query, c.target); got != c.want {
+			t.Errorf("fuzzyMatch(%q, %q) = %v, want %v", c.query, c.target, got, c.want)
+		}
+	}
+}
+
+func TestMouseWheelMovesCursor(t *testing.T) {
+	m := newTestModel(t, 3)
+	updated, _ := m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	m = updated.(Model)
+	if m.cursor != 1 {
+		t.Fatalf("expected cursor at 1 after wheel down, got %d", m.cursor)
+	}
+	updated, _ = m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	m = updated.(Model)
+	if m.cursor != 0 {
+		t.Fatalf("expected cursor at 0 after wheel up, got %d", m.cursor)
+	}
+}
+
+func TestMouseClickSelectsDevice(t *testing.T) {
+	m := newTestModel(t, 3)
+	top := m.deviceListTop()
+	updated, _ := m.Update(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: top + 2})
+	m = updated.(Model)
+	if m.cursor != 2 {
+		t.Fatalf("expected clicking the third row to select cursor 2, got %d", m.cursor)
+	}
+
+}
+
+func TestMouseClickAccountsForRendererClipping(t *testing.T) {
+	m := newTestModel(t, 4)
+	m.height = 5
+	m.log = []string{"one", "two", "three", "four", "five", "six", "seven", "eight"}
+	offset := m.mouseViewportOffset()
+	if offset == 0 {
+		t.Fatal("expected a clipped view")
+	}
+	displayedRow := m.deviceListTop() + 2 - offset
+	updated, _ := m.Update(tea.MouseMsg{
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+		Y:      displayedRow,
+	})
+	m = updated.(Model)
+	if m.cursor != 2 {
+		t.Fatalf("expected clipped click to select cursor 2, got %d", m.cursor)
+	}
+}
+
+func TestMouseIgnoredDuringPrompt(t *testing.T) {
+	m := newTestModel(t, 3)
+	m = sendKey(m, "d")
+	updated, _ := m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	m = updated.(Model)
+	if m.cursor != 0 {
+		t.Fatalf("expected mouse events ignored while a prompt is active, cursor moved to %d", m.cursor)
+	}
+}
+
+func TestAutoRefreshTickReschedulesAndRefreshes(t *testing.T) {
+	m := newTestModel(t, 1)
+	m.devices[0].busy = false
+	m.refreshInterval = 30 * time.Second
+	updated, cmd := m.Update(autoRefreshTickMsg{})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatalf("expected a batched command from an auto-refresh tick")
+	}
+	if !m.devices[0].busy {
+		t.Fatal("expected auto-refresh to mark the device busy")
+	}
+
+	updated, cmd = m.Update(autoRefreshTickMsg{})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected an in-flight tick to keep the timer scheduled")
+	}
+	if !m.devices[0].busy {
+		t.Fatal("expected overlapping auto-refresh to remain suppressed")
+	}
+}

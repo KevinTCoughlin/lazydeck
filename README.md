@@ -75,6 +75,9 @@ Edit `~/.config/lazydeck/devices.toml` (created for you on first run) to
 list your devkits:
 
 ```toml
+# Optional root-level setting; it must precede the first [[device]] table.
+refresh_interval_seconds = 30
+
 [[device]]
 name = "steam-machine"
 machine = "192.168.1.50"   # hostname, IP, or mDNS service name
@@ -84,6 +87,9 @@ login = "deck"             # optional; auto-detected if omitted
 name = "steam-deck"
 machine = "steamdeck.local"
 ```
+
+Periodic background status refresh is off by default; omit
+`refresh_interval_seconds` to refresh only on startup and with the `s` key.
 
 Don't know the Deck's IP yet? Find it via mDNS/Bonjour (works once the Deck
 is on the same Wi-Fi and Developer Mode pairing is enabled):
@@ -140,6 +146,8 @@ just clean      # remove the built binary and __pycache__ dirs
 |-----------|-------------------------------------------------------------|
 | `↑`/`k`   | previous device                                              |
 | `↓`/`j`   | next device                                                  |
+| mouse     | click a device to select it, scroll wheel to move the cursor |
+| `/`       | fuzzy-filter the device list by name/machine (`esc` clears)  |
 | `space`   | toggle multi-select (batches `d`/`l`/`x` across the selection)|
 | `s`       | refresh status for all devices                               |
 | `r`       | register/pair the selected device                            |
