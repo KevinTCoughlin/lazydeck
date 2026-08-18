@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kevintcoughlin/lazydeck/internal/client"
 	"github.com/kevintcoughlin/lazydeck/internal/config"
@@ -405,23 +406,62 @@ func TestMouseClickSelectsDevice(t *testing.T) {
 
 }
 
-func TestMouseClickAccountsForRendererClipping(t *testing.T) {
-	m := newTestModel(t, 4)
-	m.height = 5
-	m.log = []string{"one", "two", "three", "four", "five", "six", "seven", "eight"}
-	offset := m.mouseViewportOffset()
-	if offset == 0 {
-		t.Fatal("expected a clipped view")
+func TestMouseClickAccountsForDevicePagination(t *testing.T) {
+	m := newTestModel(t, 12)
+	m.width = 120
+	m.height = 12
+	m.cursor = 11
+	start, _ := m.deviceWindow(len(m.visibleIndices()))
+	if start == 0 {
+		t.Fatal("expected the device list to be paginated")
 	}
-	displayedRow := m.deviceListTop() + 2 - offset
 	updated, _ := m.Update(tea.MouseMsg{
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
-		Y:      displayedRow,
+		Y:      m.deviceListTop(),
 	})
 	m = updated.(Model)
-	if m.cursor != 2 {
-		t.Fatalf("expected clipped click to select cursor 2, got %d", m.cursor)
+	if m.cursor != start {
+		t.Fatalf("expected first visible row to select cursor %d, got %d", start, m.cursor)
+	}
+}
+
+func TestWideMultiPanelLayout(t *testing.T) {
+	m := newTestModelNamed(t, "steam-deck", "steam-machine")
+	m.width = 120
+	m.height = 30
+	m.devices[0].dev.Machine = "steamdeck.local"
+	m.devices[0].statusMsg = "online"
+	m.log = []string{"deployed Gridlock"}
+
+	view := m.View()
+	for _, text := range []string{"DEVICES", "DETAIL", "ACTIVITY", "steamdeck.local", "deployed Gridlock"} {
+		if !strings.Contains(view, text) {
+			t.Fatalf("wide layout missing %q", text)
+		}
+	}
+	if lipgloss.Width(view) > m.width {
+		t.Fatalf("layout width %d exceeds terminal width %d", lipgloss.Width(view), m.width)
+	}
+	if lipgloss.Height(view) > m.height {
+		t.Fatalf("layout height %d exceeds terminal height %d", lipgloss.Height(view), m.height)
+	}
+}
+
+func TestNarrowLayoutStacksPanels(t *testing.T) {
+	m := newTestModel(t, 1)
+	m.width = 72
+	m.height = 30
+	layout := m.panelLayout(m.headerView(), m.footerView())
+	if layout.wide {
+		t.Fatal("expected narrow stacked layout")
+	}
+	view := m.View()
+	if lipgloss.Width(view) > m.width {
+		t.Fatalf("stacked layout width %d exceeds terminal width %d", lipgloss.Width(view), m.width)
+	}
+	if lipgloss.Height(view) > m.height {
+		t.Fatalf("stacked layout height %d exceeds terminal height %d", lipgloss.Height(view), m.height)
 	}
 }
 
