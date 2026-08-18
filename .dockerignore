@@ -1,0 +1,10 @@
+.git
+.github
+dist
+lazydeck
+python/.venv
+**/__pycache__
+**/*.pyc
+**/.ruff_cache
+packaging/uv
+recordings

@@ -4,9 +4,11 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"text/template"
 
 	"github.com/BurntSushi/toml"
@@ -60,33 +62,93 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// Save writes cfg to path as TOML, overwriting any existing contents. It is
-// used by the TUI's device-discovery wizard to persist newly added devices
-// without requiring the user to hand-edit devices.toml.
+// Save writes cfg to path as TOML, overwriting any existing contents. The
+// write is atomic and durable: it encodes to a temporary file in the same
+// directory, fsyncs it, then renames it over path, so a crash or a
+// concurrent reader never observes a truncated or partially written config.
+// It is used by the TUI's device-discovery wizard to persist newly added
+// devices without requiring the user to hand-edit devices.toml.
 func Save(path string, cfg *Config) error {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
 		return fmt.Errorf("encoding config: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating config dir: %w", err)
 	}
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+	if err := writeFileAtomic(path, buf.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	return nil
 }
 
+// writeFileAtomic writes data to a uniquely-named temporary file in the same
+// directory as path (so os.Rename stays within one filesystem), flushes it to
+// disk, and atomically renames it into place. The temp file is cleaned up on
+// any error before the rename. Keeping the temp file in the same directory is
+// what makes the final rename atomic on POSIX filesystems.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	dirFile, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer dirFile.Close()
+	if err := dirFile.Sync(); err != nil && !errors.Is(err, syscall.EINVAL) && !errors.Is(err, syscall.ENOTSUP) {
+		return err
+	}
+	return nil
+}
+
 // AddDevice appends d to cfg.Devices and persists the result to path. It
-// returns an error if a device with the same Name already exists.
+// returns an error if a device with the same Name already exists. The
+// in-memory config is only mutated after the write succeeds, so a failed
+// save never leaves cfg holding a device that isn't on disk.
 func AddDevice(path string, cfg *Config, d Device) error {
 	for _, existing := range cfg.Devices {
 		if existing.Name == d.Name {
 			return fmt.Errorf("device %q already exists", d.Name)
 		}
 	}
-	cfg.Devices = append(cfg.Devices, d)
-	return Save(path, cfg)
+	staged := &Config{
+		Devices:                append(append([]Device(nil), cfg.Devices...), d),
+		RefreshIntervalSeconds: cfg.RefreshIntervalSeconds,
+	}
+	if err := Save(path, staged); err != nil {
+		return err
+	}
+	cfg.Devices = staged.Devices
+	return nil
 }
 
 // CustomCommand binds a key to an arbitrary shell command run against the
@@ -179,7 +241,10 @@ func writeUserConfigStarter(path string) error {
 #     name: "uptime"
 #     command: "ssh {{.Login}}@{{.Machine}} uptime"
 `
-	return os.WriteFile(path, []byte(starter), 0o644)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return writeFileAtomic(path, []byte(starter), 0o644)
 }
 
 func writeStarter(path string) error {
@@ -201,5 +266,8 @@ func writeStarter(path string) error {
 # name = "steam-deck"
 # machine = "steamdeck.local"
 `
-	return os.WriteFile(path, []byte(starter), 0o644)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return writeFileAtomic(path, []byte(starter), 0o644)
 }

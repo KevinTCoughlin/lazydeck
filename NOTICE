@@ -1,0 +1,55 @@
+lazydeck
+Copyright (c) 2026 Kevin Coughlin
+
+This product is licensed under the MIT License (see LICENSE).
+
+It bundles and builds upon third-party software. The notices below satisfy
+the attribution and license-text requirements of those components. Full
+license texts are included at the referenced paths and, for release
+artifacts, in their bundled source paths and THIRD_PARTY_GO.md.
+
+================================================================================
+Bundled Python components (python/vendor/)
+================================================================================
+
+1. steamos-devkit (devkit_client)
+   Copyright (c) 2017-2022 Valve Software inc., Collabora Ltd
+   License: MIT
+   Path:    python/vendor/LICENSE-steamos-devkit
+   Notes:   lazydeck vendors and narrowly patches devkit_client (the headless
+            SSH/rsync/mDNS bridge) under python/vendor/devkit_client/. Local
+            modifications are documented inline in that file and in this
+            repository's history.
+
+2. python-zeroconf (devkit_client/zeroconf), version 0.29.0
+   Copyright 2003 Paul Scott-Murphy
+   Copyright 2014 William McBrine
+   Copyright the python-zeroconf authors
+   License: GNU Lesser General Public License, version 2.1 (LGPL-2.1)
+   Path:    python/vendor/devkit_client/zeroconf/COPYING (full license text)
+   Notes:   Vendored as Python source. The complete corresponding source and
+            license text ship together at the paths above; recipients may
+            modify or replace those files under the terms of the LGPL.
+
+3. uv (Debian package only), version 0.12.5
+   Copyright (c) 2023-present Astral Software Inc.
+   License: Apache License 2.0 or MIT
+   Paths:   /usr/share/doc/lazydeck/LICENSE-uv-APACHE
+            /usr/share/doc/lazydeck/LICENSE-uv-MIT
+   Notes:   Debian packages include an architecture-matched uv executable so
+            the bundled Python bridge can be provisioned without relying on an
+            unavailable distro package. Release builds fetch uv from its
+            immutable upstream release and verify its published SHA-256.
+
+================================================================================
+Go module dependencies
+================================================================================
+
+The Go binary links third-party modules (Bubble Tea, Lip Gloss, and their
+transitive dependencies). Their licenses are enumerated in THIRD_PARTY_GO.md,
+which is generated reproducibly from go.mod via:
+
+    ./scripts/generate-notices.sh
+
+and included in release archives. See that file for the authoritative,
+per-release list of Go module licenses and copyright notices.

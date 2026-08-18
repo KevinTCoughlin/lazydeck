@@ -3,5 +3,6 @@
 **/.ruff_cache/
 /lazydeck
 /dist/
+packaging/uv/
 python/.venv/
 python/vendor/devkit_client/**/__pycache__/

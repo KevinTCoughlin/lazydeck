@@ -1,0 +1,32 @@
+name: Bug report
+description: Report reproducible LazyDeck behavior
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Include the expected behavior and exact error text.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: LazyDeck version
+      description: Output from `lazydeck version`.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Host and device
+      description: Host OS/architecture and SteamOS/device version.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Additional context
+      description: Remove private hostnames, addresses, usernames, and paths.

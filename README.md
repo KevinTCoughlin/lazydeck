@@ -38,9 +38,9 @@ Tagged releases (`v*`) are built for macOS and Linux (amd64/arm64) via
 [goreleaser](https://goreleaser.com/) — see
 [Releases](https://github.com/kevintcoughlin/lazydeck/releases). Each
 archive bundles the `lazydeck` binary alongside `python/` so you don't need
-to clone the repo, but you still need `uv` installed locally and must run
-`uv sync --project python` once after extracting, since the Python
-dependencies (`paramiko` et al.) aren't vendored into the binary.
+to clone the repo. You still need `uv` installed locally; LazyDeck finds the
+sibling Python runtime and provisions its locked dependencies into your user
+cache on first run.
 
 Install the macOS release with the Homebrew tap:
 
@@ -61,13 +61,33 @@ archive for your OS/arch, installs the binary to `~/.local/bin`, and copies
 curl -fsSL https://raw.githubusercontent.com/kevintcoughlin/lazydeck/main/install.sh | bash
 ```
 
+The installer verifies the release checksum, smoke-tests the staged binary and
+Python bridge, then atomically replaces the existing installation. Pin a
+release or customize its destination without editing the script:
+
+```bash
+VERSION=0.2.0 PREFIX="$HOME/.local" ./install.sh
+VERSION=0.2.0 INSTALL_DIR="$HOME/bin" LAZYDECK_DATA_DIR="$HOME/lib/lazydeck" ./install.sh
+```
+
+Linux releases also include amd64/arm64 Debian packages. They install the
+binary, Python runtime, and an architecture-matched pinned `uv`; `openssh-client`
+and `rsync` remain normal package dependencies:
+
+```bash
+sudo apt install ./lazydeck_0.2.0_linux_amd64.deb
+```
+
+Release archives, Debian packages, checksums, SBOMs, and GitHub build
+provenance are generated from the tagged commit.
+
 ## Setup
 
 ```bash
 git clone <this repo> && cd lazydeck
 
-just sync   # one-time (and after pulling python/pyproject.toml changes):
-            # uv-installs paramiko/appdirs/etc.
+mise install  # optional: installs the versions pinned in mise.toml
+just sync     # installs exactly the dependencies in python/uv.lock
 just build  # go build -o lazydeck ./cmd/lazydeck
 ```
 
@@ -164,10 +184,23 @@ contains private output. Recordings under `recordings/` are ignored by git.
 
 ```bash
 just            # list all recipes
-just test       # go test ./...
-just lint       # gofmt -l . && go vet ./... && python3 -m py_compile ...
+just test       # Go + complete Python unit test suites
+just lint       # Go, Ruff, and shell lint
+just check      # CI-equivalent race/vet/test/lock checks
+just snapshot   # GoReleaser check plus local release snapshot
 just cli status --machine 192.168.1.50   # call the headless python CLI directly
 just clean      # remove the built binary and __pycache__ dirs
+```
+
+### Development/test container
+
+`Containerfile` is a pinned, reproducible Linux development and test
+environment; it is not a runtime service image. LazyDeck is an interactive,
+host-network terminal application, so publishing it as an OCI service would
+misrepresent its operating model.
+
+```bash
+just container-test
 ```
 
 ## Keybindings
@@ -242,14 +275,25 @@ The Go side never speaks HTTP/SSH/rsync/mDNS itself — it only shells out to
 Valve's own GUI uses. This keeps the actual pairing/deploy protocol logic
 in one well-tested place instead of being reimplemented in Go.
 
+### SSH host-key trust
+
+The SteamOS pairing protocol does not authenticate an SSH host key out of band.
+LazyDeck records first-seen keys in a dedicated steamos-devkit `known_hosts`
+file, separate from your normal OpenSSH database. Unknown keys are enrolled on
+first use. Changed keys warn by default so re-imaged devkits remain usable; set
+`LAZYDECK_SSH_STRICT=1` to reject changed keys. Verify changes out of band and
+pair only on a trusted LAN. See [SECURITY.md](SECURITY.md).
+
 ## Troubleshooting
 
-- **"could not locate the python/ directory"** — set `LAZYDECK_PYTHON_DIR`
+- **"could not locate a complete Python runtime"** — set `LAZYDECK_PYTHON_DIR`
   to point at the `python/` directory (a pre-built release archive bundles
   it as a sibling of the binary; a dev checkout resolves it automatically).
-- **`uv run` fails with a missing-package error** — run `just sync` (or
-  `uv sync --project python` if you installed a release archive) to
-  install `paramiko`/`appdirs`/`signalslot`/`ifaddr` into the managed venv.
+- **"uv is required"** — install `uv`, or point `LAZYDECK_UV` at an executable.
+  Debian packages include their own copy automatically.
+- **`uv run` fails with a lock/package error** — from a checkout run
+  `uv sync --frozen --project python`; release layouts are provisioned from
+  their bundled lockfile automatically.
 - **Device shows "offline / unpaired" after `s`** — press `r` to
   (re-)register your workstation's SSH key with it first; devices must be
   paired via the same Developer Mode pairing flow the official GUI uses.
@@ -271,5 +315,7 @@ in one well-tested place instead of being reimplemented in Go.
 ## License note
 
 `python/vendor/devkit_client` is Valve/Collabora's code, MIT-licensed — see
-`python/vendor/LICENSE-steamos-devkit`. Everything else in this repo is
-original.
+`python/vendor/LICENSE-steamos-devkit`. Its bundled python-zeroconf copy is
+LGPL-2.1 and includes the complete license at
+`python/vendor/devkit_client/zeroconf/COPYING`. Go and packaged uv attribution
+is recorded in `THIRD_PARTY_GO.md` and `NOTICE`.

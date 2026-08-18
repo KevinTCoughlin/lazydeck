@@ -5,14 +5,17 @@ lazydeck is a small personal project, but contributions/issues are welcome.
 ## Development
 
 ```bash
-just sync    # uv-installs Python deps (paramiko, appdirs, signalslot, ifaddr)
+mise install # optional, installs the versions pinned in mise.toml
+just sync    # uv sync --frozen from the committed lockfile
 just build   # go build -o lazydeck ./cmd/lazydeck
-just test    # go test ./...
-just lint    # golangci-lint + ruff if installed, else go vet + py_compile
+just test    # complete Go and Python unit suites
+just lint    # golangci-lint/go vet, Ruff, gofmt, and ShellCheck
+just check   # CI-equivalent race, vet, lock, lint, and test checks
 ```
 
-Before opening a PR, please make sure all of the above pass. CI
-(`.github/workflows/ci.yml`) runs the same checks on push/PR.
+Do not regenerate dependencies without committing the resulting `python/uv.lock`.
+Before opening a PR, run `just check`. CI repeats the checks on Linux and macOS,
+validates GoReleaser, and runs the test container.
 
 ## Project layout
 
@@ -28,6 +31,10 @@ Before opening a PR, please make sure all of the above pass. CI
   see `pyproject.toml`'s `extend-exclude`). Don't hand-edit this unless
   you're intentionally patching vendored code; prefer updating from
   upstream (`flibitijibibo/steamos-devkit`) instead.
+- `Containerfile` — pinned Linux development/test environment, not a runtime
+  service image.
+- `.goreleaser.yml` and `packaging/` — release archives, Debian packages,
+  checksums, SBOM inputs, and bundled uv provisioning.
 
 ## Testing without hardware
 
@@ -43,6 +50,16 @@ Changes to the actual devkit protocol (pairing, deploy, mDNS discovery
 results, etc.) can only be meaningfully verified against real hardware —
 please note in your PR description if you were or weren't able to test
 against a real device.
+
+## Release and license maintenance
+
+Run `goreleaser check` after changing `.goreleaser.yml`. A snapshot release
+(`just snapshot`) downloads the pinned uv release for both Linux package
+architectures and verifies upstream checksums. Re-run
+`scripts/generate-notices.sh` after changing Go dependencies and include the
+updated `THIRD_PARTY_GO.md`. Do not edit generated notices manually.
+
+Report vulnerabilities privately as described in `SECURITY.md`.
 
 ## Reporting issues
 

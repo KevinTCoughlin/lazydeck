@@ -13,7 +13,7 @@ default:
 # One-time (or after pulling changes to python/pyproject.toml): resolve and
 # install the Python side's dependencies (paramiko, appdirs, ...) via uv.
 sync:
-    cd {{python_dir}} && uv sync
+    cd {{python_dir}} && uv sync --frozen
 
 # Build the lazydeck binary into the repo root.
 build:
@@ -26,15 +26,34 @@ run: build
 # Run the Go unit tests.
 test:
     go test ./...
-    cd {{python_dir}} && uv run python -m unittest test_cli.py
+    cd {{python_dir}} && uv run --frozen python -m unittest discover -s . -p 'test_*.py' -v
 
 # Full lint pass: golangci-lint (falls back to go vet if not installed),
 # ruff (falls back to py_compile if not installed), plus gofmt.
 lint:
-    gofmt -l .
+    test -z "$(gofmt -l .)"
     if command -v golangci-lint >/dev/null; then golangci-lint run ./...; else go vet ./...; fi
-    if command -v ruff >/dev/null; then ruff check {{python_dir}}/cli.py; else python3 -m py_compile {{python_dir}}/cli.py; fi
-    python3 -m py_compile {{python_dir}}/vendor/devkit_client/__init__.py
+    cd {{python_dir}} && uv run --frozen ruff check .
+    shellcheck install.sh packaging/deb/postinstall.sh scripts/*.sh
+
+# CI-equivalent correctness checks.
+check:
+    go vet ./...
+    go test -race ./...
+    cd {{python_dir}} && uv lock --check && uv sync --frozen
+    cd {{python_dir}} && uv run --frozen ruff check .
+    cd {{python_dir}} && uv run --frozen python -m unittest discover -s . -p 'test_*.py' -v
+    shellcheck install.sh packaging/deb/postinstall.sh scripts/*.sh
+
+# Validate release configuration and build local snapshot artifacts.
+snapshot:
+    goreleaser check
+    goreleaser release --snapshot --clean
+
+# Build and run the reproducible test container.
+container-test:
+    podman build --tag lazydeck-dev:test --file Containerfile .
+    podman run --rm lazydeck-dev:test
 
 # Run the headless python CLI directly, e.g.:
 #   just cli status --machine 192.168.1.50

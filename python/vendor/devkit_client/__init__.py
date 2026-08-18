@@ -396,6 +396,12 @@ class ServiceListener:
     def __init__(self, zc):
         self.zc = zc
         self.devkits = {}
+        # Guards self.devkits: add_service/remove_service mutate it from the
+        # zeroconf browser thread while callers (e.g. lazydeck's cli.py
+        # discover) iterate it from the main thread. Only held around the
+        # dict read/modify sections, never around blocking network I/O
+        # (get_service_info), to avoid stalling the browser thread.
+        self._lock = threading.Lock()
         self.devkit_events = queue.Queue()
         # singleton
         global g_zeroconf_listener
@@ -408,10 +414,11 @@ class ServiceListener:
         assert name.endswith('.' + type), (name, type)
         service_name = name[:-len('.' + type)]
         logger.info("Service %r removed", service_name)
-        if not service_name in self.devkits:
-            logger.warning("Service %r not found", service_name)
-            return
-        del self.devkits[service_name]
+        with self._lock:
+            if not service_name in self.devkits:
+                logger.warning("Service %r not found", service_name)
+                return
+            del self.devkits[service_name]
         self.devkit_events.put(('del', service_name))
 
     def add_service(self, zeroconf, type, name):
@@ -442,26 +449,48 @@ class ServiceListener:
                         'Incompatible txtvers %r, ignoring %s',
                         prop[b'txtvers'], service_name)
                     return
-            if service_name in self.devkits:
-                logger.info(f'updating {service_name}')
-                self.devkits[service_name] = info
-                self.devkit_events.put(('update', service_name))
-            else:
-                logger.info(f'adding {service_name}')
-                self.devkits[service_name] = info
-                self.devkit_events.put(('add', service_name))
+            with self._lock:
+                if service_name in self.devkits:
+                    logger.info(f'updating {service_name}')
+                    self.devkits[service_name] = info
+                    event = 'update'
+                else:
+                    logger.info(f'adding {service_name}')
+                    self.devkits[service_name] = info
+                    event = 'add'
+            self.devkit_events.put((event, service_name))
 
     def address_for_service(self, name):
-        if not name in self.devkits:
-            return None
-        info = self.devkits[name]
+        with self._lock:
+            if not name in self.devkits:
+                return None
+            info = self.devkits[name]
         return socket.inet_ntoa(info.addresses[0])
 
     def port_for_service(self, name):
-        if not name in self.devkits:
-            return DEFAULT_DEVKIT_SERVICE_HTTP
-        info = self.devkits[name]
+        with self._lock:
+            if not name in self.devkits:
+                return DEFAULT_DEVKIT_SERVICE_HTTP
+            info = self.devkits[name]
         return info.port
+
+    def snapshot_devkits(self):
+        """Thread-safe list of ``(name, address, port)`` for every currently
+        known devkit, resolved atomically under the listener lock so callers
+        iterating discovery results never race with add_service/remove_service
+        mutating the dict on the zeroconf browser thread."""
+        with self._lock:
+            items = list(self.devkits.items())
+        result = []
+        for name, info in items:
+            if info is not None and getattr(info, 'addresses', None):
+                address = socket.inet_ntoa(info.addresses[0])
+                port = info.port
+            else:
+                address = None
+                port = DEFAULT_DEVKIT_SERVICE_HTTP
+            result.append((name, address, port))
+        return result
 
     def update_service(self, *args):
         self.add_service(*args)
@@ -595,6 +624,95 @@ def ensure_devkit_key():
         return (key, key_path, pubkey_path)
 
 
+def devkit_known_hosts_path():
+    """Path to lazydeck's dedicated SSH known_hosts file, kept separate from
+    the user's ~/.ssh/known_hosts so devkit host keys (which live on a
+    trusted LAN and rotate when a device is re-imaged) don't collide with the
+    user's real SSH host database. See SECURITY.md for the LAN trust model."""
+    return os.path.join(appdirs.user_config_dir('steamos-devkit'), 'known_hosts')
+
+
+def ssh_strict_host_keys():
+    """Whether to hard-refuse a changed devkit host key (opt-in pinning).
+
+    Default (unset/false): trust-on-first-use — record the key on first
+    contact and warn, but still connect, if it later changes. This matches
+    the historical AutoAddPolicy behavior so a re-imaged Deck or a reused
+    DHCP lease on the LAN doesn't break existing workflows. Set
+    LAZYDECK_SSH_STRICT=1 to refuse connecting when a recorded key changes."""
+    return os_getenv('LAZYDECK_SSH_STRICT', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _load_known_hostkeys(path):
+    hostkeys = paramiko.HostKeys()
+    if os.path.exists(path):
+        try:
+            hostkeys.load(path)
+        except Exception as e:
+            logger.warning('Could not load devkit known_hosts %r: %s', path, e)
+    return hostkeys
+
+
+def _persist_known_hostkey(path, hostkeys, hostname, key):
+    hostkeys.add(hostname, key.get_name(), key)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        hostkeys.save(path)
+    except Exception as e:
+        logger.warning('Could not persist devkit known_hosts %r: %s', path, e)
+
+
+class PersistentHostKeyPolicy(paramiko.MissingHostKeyPolicy):
+    """Trust-on-first-use host key policy backed by a dedicated, persistent
+    known_hosts file (see devkit_known_hosts_path).
+
+    Improves on paramiko.AutoAddPolicy (which trusts every key silently and
+    persists nothing) by recording each devkit's host key on first contact
+    and detecting later changes:
+
+      * unknown host   -> record key + connect (trust on first use)
+      * known + match  -> connect
+      * known + differ -> loud warning, then connect anyway (default,
+        backward compatible) or refuse if ssh_strict_host_keys() is set
+        (LAZYDECK_SSH_STRICT=1).
+
+    The default is deliberately non-breaking: SteamOS devkits live on a LAN,
+    advertise dynamic mDNS/DHCP addresses, and rotate host keys on re-image,
+    and the pairing protocol has no authenticated host-key exchange, so
+    forced pinning would break real devices. See SECURITY.md."""
+
+    def __init__(self, path=None, strict=None):
+        self._path = path or devkit_known_hosts_path()
+        self._strict = ssh_strict_host_keys() if strict is None else strict
+        self._lock = threading.Lock()
+
+    def missing_host_key(self, client, hostname, key):
+        with self._lock:
+            hostkeys = _load_known_hostkeys(self._path)
+            if hostkeys.lookup(hostname) is None:
+                logger.info('Trusting new devkit SSH host key for %s (%s)', hostname, key.get_name())
+                _persist_known_hostkey(self._path, hostkeys, hostname, key)
+                return
+            if hostkeys.check(hostname, key):
+                return
+            message = (
+                f'Devkit SSH host key for {hostname} ({key.get_name()}) does not match the '
+                f'key previously recorded in {self._path}. This is expected after re-imaging a '
+                f'device or when a LAN address is reused, but can also indicate a '
+                f'man-in-the-middle. See SECURITY.md.'
+            )
+            if self._strict:
+                logger.error(message)
+                raise paramiko.SSHException(message)
+            logger.warning(message)
+
+
+def _apply_devkit_host_key_policy(ssh):
+    """Install lazydeck's persistent trust-on-first-use host key policy on a
+    paramiko SSHClient in place of the historical silent AutoAddPolicy."""
+    ssh.set_missing_host_key_policy(PersistentHostKeyPolicy())
+
+
 class DevkitClient(object):
     def __init__(self, quiet=True):
         self.keypath = os.path.join(
@@ -602,6 +720,12 @@ class DevkitClient(object):
             'devkit_rsa',
         )
         (self.cygpath, self.ssh, self.rsync, self.ssh_known_hosts) = locate_cygwin_tools()
+        # On non-Windows, locate_cygwin_tools() leaves ssh_known_hosts unset,
+        # which made rsync fall back to the user's ~/.ssh/known_hosts. Route
+        # it to lazydeck's dedicated devkit known_hosts instead so devkit host
+        # keys stay isolated and consistent with the paramiko path above.
+        if self.ssh_known_hosts is None:
+            self.ssh_known_hosts = devkit_known_hosts_path()
         self.ssh_result = {}
         self.last_device_list_time = 0
         self.rsync_process = None
@@ -616,13 +740,14 @@ class DevkitClient(object):
             self.ssh_result = e
 
     def remote_shell_command(self, username, ipaddress):
+        strict = 'accept-new' if ssh_strict_host_keys() else 'no'
         cmd = [
             # NOTE: this is the path to the ssh client, and may contain spaces (especially likely on windows)
             self.ssh
         ]
         cmd += [
-            '-o', 'StrictHostKeyChecking=no',
-            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', f'StrictHostKeyChecking={strict}',
+            '-o', f'UserKnownHostsFile={devkit_known_hosts_path()}',
             '-o', 'IdentitiesOnly=yes',
             '-t',
             '-i', self.keypath,
@@ -637,7 +762,7 @@ class DevkitClient(object):
         logger.debug('%s@%s: %s', username, ipaddress, command)
         ssh = paramiko.SSHClient()
         key, key_path, _ = ensure_devkit_key()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        _apply_devkit_host_key_policy(ssh)
 
         logger.debug(f'Connecting to {username}@{ipaddress} with private key {key_path!r}')
 
@@ -731,7 +856,7 @@ class DevkitClient(object):
         else:
             ssh_known_hosts = ''
 
-        rsh_cmd = f'{shlex.quote(self.ssh)} {ssh_known_hosts} -o StrictHostKeyChecking=no -i {shlex.quote(self.keypath)}'
+        rsh_cmd = f'{shlex.quote(self.ssh)} {ssh_known_hosts} -o StrictHostKeyChecking={"accept-new" if ssh_strict_host_keys() else "no"} -i {shlex.quote(self.keypath)}'
 
         cmd = [
             self.rsync,
@@ -1060,7 +1185,11 @@ def new_or_ensure_game(args):
     (ssh, client, machine) = _open_ssh_for_args_all(args)
 
     gameid = args.name
-    (out_text, _, _) = _simple_ssh(ssh, f'python3 ~/devkit-utils/steamos-prepare-upload --gameid {gameid}', check_status=True)
+    # gameid is user-controlled and crosses into a remote shell command via
+    # ssh.exec_command; shlex.quote so a name like "x; rm -rf ~" can't inject
+    # additional commands on the device. lazydeck also validates the name at
+    # the CLI boundary (see cli.validate_game_name).
+    (out_text, _, _) = _simple_ssh(ssh, f'python3 ~/devkit-utils/steamos-prepare-upload --gameid {shlex.quote(gameid)}', check_status=True)
     #logger.debug(f'steamos-prepare-upload: {out_text}')
     json_output = json.loads(out_text)
 
@@ -1235,7 +1364,8 @@ def sync_logs(args):
         args.machine, args.local_folder)
 
     machine = resolve_machine(
-        args.machine, name_type=args.machine_name_type,
+        args.machine, login=getattr(args, 'login', None),
+        name_type=args.machine_name_type,
         http_port=getattr(args, 'http_port', DEFAULT_DEVKIT_SERVICE_HTTP),
     )
 
@@ -1422,7 +1552,7 @@ def _open_ssh_for_args_all(args, machine=None):
         )
     ssh = paramiko.SSHClient()
     key, key_path, _ = ensure_devkit_key()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    _apply_devkit_host_key_policy(ssh)
 
     logger.debug(f'Connecting to {machine.login}@{machine.address} with private key {key_path!r}')
 
@@ -1732,7 +1862,10 @@ def delete_title(args):
     ssh = _open_ssh_for_args(args)
     cmd = ['python3', '~/devkit-utils/steamos-delete']
     if args.gameid:
-        cmd += ['--delete-title', args.gameid]
+        # args.gameid is user-controlled and interpolated into a remote shell
+        # command (' '.join(cmd) below runs via ssh.exec_command); shlex.quote
+        # so it cannot inject additional commands on the device.
+        cmd += ['--delete-title', shlex.quote(args.gameid)]
     if args.delete_all:
         cmd += ['--delete-all-titles']
     if args.reset_steam_client:
