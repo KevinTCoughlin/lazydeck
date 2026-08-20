@@ -205,3 +205,93 @@ func TestCustomCommandExpandInvalidTemplate(t *testing.T) {
 		t.Fatal("expected error for invalid template, got nil")
 	}
 }
+
+// TestSaveIsAtomicNoTempLeftovers guards finding #6: a successful Save must
+// leave only the target file behind, never a stray temp file.
+func TestSaveIsAtomicNoTempLeftovers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devices.toml")
+	cfg := &Config{Devices: []Device{{Name: "a", Machine: "1.2.3.4"}}}
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != "devices.toml" {
+			t.Fatalf("unexpected leftover file after atomic save: %q", e.Name())
+		}
+	}
+}
+
+// TestAddDeviceDoesNotMutateOnSaveFailure guards finding #6: the in-memory
+// config must only change after the write succeeds, so a failed persist never
+// leaves cfg holding a device that isn't on disk.
+func TestAddDeviceDoesNotMutateOnSaveFailure(t *testing.T) {
+	dir := t.TempDir()
+	// A regular file where a directory is expected makes MkdirAll/CreateTemp
+	// fail deterministically, standing in for any write failure.
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(blocker, "devices.toml")
+
+	cfg := &Config{Devices: []Device{{Name: "existing", Machine: "1.2.3.4"}}}
+	err := AddDevice(path, cfg, Device{Name: "new", Machine: "5.6.7.8"})
+	if err == nil {
+		t.Fatal("expected AddDevice to fail when the config dir can't be created")
+	}
+	if len(cfg.Devices) != 1 || cfg.Devices[0].Name != "existing" {
+		t.Fatalf("in-memory config was mutated despite save failure: %+v", cfg.Devices)
+	}
+}
+
+// TestAddDevicePreservesRefreshInterval verifies staging a copy for the atomic
+// write doesn't drop non-device config fields.
+func TestAddDevicePreservesRefreshInterval(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devices.toml")
+	cfg := &Config{RefreshIntervalSeconds: 45}
+	if err := AddDevice(path, cfg, Device{Name: "a", Machine: "1.2.3.4"}); err != nil {
+		t.Fatalf("AddDevice: %v", err)
+	}
+	if cfg.RefreshIntervalSeconds != 45 {
+		t.Fatalf("in-memory refresh interval changed: %d", cfg.RefreshIntervalSeconds)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.RefreshIntervalSeconds != 45 {
+		t.Fatalf("expected refresh interval preserved on disk, got %d", reloaded.RefreshIntervalSeconds)
+	}
+	if len(reloaded.Devices) != 1 {
+		t.Fatalf("expected 1 device persisted, got %d", len(reloaded.Devices))
+	}
+}
+
+// TestSaveOverwriteReplacesContent verifies the rename-based save fully
+// replaces prior contents (no partial/append leftovers).
+func TestSaveOverwriteReplacesContent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devices.toml")
+	if err := Save(path, &Config{Devices: []Device{
+		{Name: "one", Machine: "1.1.1.1"},
+		{Name: "two", Machine: "2.2.2.2"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(path, &Config{Devices: []Device{{Name: "only", Machine: "3.3.3.3"}}}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Devices) != 1 || reloaded.Devices[0].Name != "only" {
+		t.Fatalf("expected content fully replaced, got %+v", reloaded.Devices)
+	}
+}

@@ -533,7 +533,7 @@ func TestCustomCommandOutputIsBounded(t *testing.T) {
 	command := config.CustomCommand{
 		Key: "p", Name: "verbose", Command: "yes x | head -c 10000",
 	}
-	done := customCommandCmd(0, config.Device{}, command)().(customCmdDoneMsg)
+	done := customCommandCmd(0, 1, config.Device{}, command)().(customCmdDoneMsg)
 	if done.err != nil {
 		t.Fatalf("custom command failed: %v", done.err)
 	}
@@ -554,5 +554,170 @@ func TestCustomCommandCannotShadowReservedKey(t *testing.T) {
 	m := NewWithUserConfig(cli, cfg, "", userCfg)
 	if len(m.customCmds) != 0 {
 		t.Fatalf("reserved key was accepted: %+v", m.customCmds)
+	}
+}
+
+// TestBusyDeviceRejectsSecondOperation verifies manual device operations are
+// serialized: once a device is running an operation, a second manual op on it
+// is refused rather than started concurrently (see finding #4).
+func TestBusyDeviceRejectsSecondOperation(t *testing.T) {
+	m := newTestModel(t, 1)
+
+	// Start a list-games op; the device is now busy under a live opID.
+	m = sendKey(m, "g")
+	if !m.devices[0].busy {
+		t.Fatal("expected device busy after 'g'")
+	}
+	firstOp := m.devices[0].opID
+	if firstOp == 0 {
+		t.Fatal("expected a non-zero operation id")
+	}
+
+	// A register while busy must be rejected: no new command, opID unchanged,
+	// and a "busy" note in the log.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	m = updated.(Model)
+	if cmd != nil {
+		t.Fatal("expected no command when acting on a busy device")
+	}
+	if m.devices[0].opID != firstOp {
+		t.Fatalf("expected opID unchanged while busy, got %d want %d", m.devices[0].opID, firstOp)
+	}
+	if len(m.log) == 0 || !strings.Contains(m.log[len(m.log)-1], "busy") {
+		t.Fatalf("expected a busy notice in the log, got %v", m.log)
+	}
+}
+
+// TestStaleCompletionDoesNotClearNewerOperation verifies operation ids guard
+// against a stale/superseded async result clearing a newer operation's busy
+// state or overwriting its status (see finding #4).
+func TestStaleCompletionDoesNotClearNewerOperation(t *testing.T) {
+	m := newTestModel(t, 1)
+	m = sendKey(m, "g") // busy under a live opID
+	liveOp := m.devices[0].opID
+
+	// A completion carrying a different (stale) opID must be ignored.
+	updated, _ := m.Update(listGamesResultMsg{index: 0, opID: liveOp + 999, games: []any{"ghost"}})
+	m = updated.(Model)
+	if !m.devices[0].busy {
+		t.Fatal("stale completion must not clear a newer operation's busy state")
+	}
+	logLen := len(m.log)
+	updated, _ = m.Update(actionDoneMsg{index: 0, opID: liveOp + 999, action: "stale"})
+	m = updated.(Model)
+	if len(m.log) != logLen || !m.devices[0].busy {
+		t.Fatal("stale action completion must be ignored")
+	}
+
+	// The matching completion clears busy.
+	updated, _ = m.Update(listGamesResultMsg{index: 0, opID: liveOp, games: []any{}})
+	m = updated.(Model)
+	if m.devices[0].busy {
+		t.Fatal("expected busy cleared by the matching completion")
+	}
+}
+
+func TestInteractiveShellStaysBusyUntilExit(t *testing.T) {
+	m := newTestModel(t, 1)
+	m = sendKey(m, "enter")
+	opID := m.devices[0].opID
+
+	info := &client.ConnectionInfo{
+		Address:        "deck.local",
+		Login:          "deck",
+		KeyPath:        "/tmp/key",
+		KnownHostsPath: "/tmp/known_hosts",
+	}
+	updated, cmd := m.Update(connInfoMsg{index: 0, opID: opID, info: info})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected interactive SSH command")
+	}
+	if !m.devices[0].busy {
+		t.Fatal("device must remain busy while interactive shell runs")
+	}
+
+	updated, _ = m.Update(shellExitedMsg{index: 0, opID: opID})
+	m = updated.(Model)
+	if m.devices[0].busy {
+		t.Fatal("device should become idle after shell exits")
+	}
+}
+
+// TestStaleStatusResultDoesNotOverwrite verifies a stale status refresh can't
+// overwrite the status of a device that has since moved on to a newer op.
+func TestStaleStatusResultDoesNotOverwrite(t *testing.T) {
+	m := newTestModel(t, 1)
+	m.devices[0].statusMsg = "online · current"
+	m.devices[0].busy = true
+	m.devices[0].opID = 5 // pretend op 5 is in flight
+
+	updated, _ := m.Update(statusResultMsg{index: 0, opID: 2, msg: "stale data"})
+	m = updated.(Model)
+	if m.devices[0].statusMsg != "online · current" {
+		t.Fatalf("stale status overwrote current: %q", m.devices[0].statusMsg)
+	}
+	if !m.devices[0].busy {
+		t.Fatal("stale status cleared busy for a newer op")
+	}
+
+	updated, _ = m.Update(statusResultMsg{index: 0, opID: 5, msg: "fresh data"})
+	m = updated.(Model)
+	if m.devices[0].statusMsg != "fresh data" || m.devices[0].busy {
+		t.Fatalf("matching status not applied: msg=%q busy=%v", m.devices[0].statusMsg, m.devices[0].busy)
+	}
+}
+
+// TestRefreshSkipsBusyDevices verifies a fleet refresh never disturbs a
+// device that is already running an operation.
+func TestRefreshSkipsBusyDevices(t *testing.T) {
+	m := newTestModel(t, 2)
+	m = sendKey(m, "g") // device 0 busy under a live opID
+	busyOp := m.devices[0].opID
+
+	m = sendKey(m, "s") // refresh the fleet
+	if m.devices[0].opID != busyOp {
+		t.Fatalf("refresh clobbered a busy device's opID: got %d want %d", m.devices[0].opID, busyOp)
+	}
+	if !m.devices[1].busy {
+		t.Fatal("expected the idle device to be refreshed")
+	}
+	if m.devices[1].opID == 0 || m.devices[1].opID == busyOp {
+		t.Fatalf("expected the idle device to get its own fresh opID, got %d", m.devices[1].opID)
+	}
+}
+
+// TestBatchDeploySkipsBusyDevice verifies batch operations skip a device that
+// is already busy rather than starting a second concurrent op on it.
+func TestBatchDeploySkipsBusyDevice(t *testing.T) {
+	m := newTestModel(t, 2)
+	m.selected[0] = true
+	m.selected[1] = true
+	// Make device 0 busy out-of-band.
+	m.devices[0].busy = true
+	m.devices[0].opID = 42
+
+	m = sendKey(m, "d")
+	for _, r := range "batch-game" {
+		m = sendKey(m, string(r))
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	for _, r := range "/tmp/build" {
+		m = sendKey(m, string(r))
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected a batched deploy for the idle device")
+	}
+	if m.devices[0].opID != 42 {
+		t.Fatalf("busy device's op was disturbed: opID=%d", m.devices[0].opID)
+	}
+	if !m.devices[1].busy || m.devices[1].opID == 0 {
+		t.Fatal("expected the idle device to start a deploy op")
+	}
+	if len(m.log) == 0 {
+		t.Fatal("expected log entries")
 	}
 }

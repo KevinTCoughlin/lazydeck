@@ -1,15 +1,20 @@
-# goreleaser config for lazydeck: builds cross-platform CLI/TUI binaries
-# on tag push (see .github/workflows/release.yml). Only the Go binary is
-# packaged here — the Python half (uv + vendored devkit_client) is a
-# separate runtime dependency, documented in README.md, until Phase 5's
-# packaging story settles on how to bundle it.
+# goreleaser config for lazydeck: builds cross-platform CLI/TUI binaries and
+# Debian packages on tag push (see .github/workflows/release.yml).
+#
+# Each artifact bundles the Python half so the binary can locate it without a
+# separate clone. Archives use uv from PATH; Debian packages bundle a pinned,
+# architecture-matched uv executable. LazyDeck provisions the locked Python
+# environment in the invoking user's cache on first run.
 version: 2
 
 project_name: lazydeck
 
 before:
   hooks:
-    - go mod tidy
+    - go mod verify
+    - uv lock --check --project python
+    - ./scripts/clean-python-artifacts.sh
+    - ./scripts/fetch-uv.sh
 
 builds:
   - id: lazydeck
@@ -23,6 +28,17 @@ builds:
     goarch:
       - amd64
       - arm64
+    flags:
+      - -trimpath
+    # Reproducible builds: stamp the binary with the commit time rather than
+    # the wall clock, and inject version metadata consumed by `lazydeck version`.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .FullCommit }}
+      - -X main.date={{ .CommitDate }}
+      - -X main.builtBy=goreleaser
 
 archives:
   - id: lazydeck
@@ -32,14 +48,71 @@ archives:
     files:
       - README.md
       - LICENSE
+      - NOTICE
+      - THIRD_PARTY_GO.md
+      - CHANGELOG.md
       - justfile
-      # Ship the Python half alongside the binary so `LAZYDECK_PYTHON_DIR`
-      # can point at it without a separate clone; users still need `uv`
-      # installed and must run `uv sync` once inside python/.
-      # Include the project entrypoints and vendored modules.
+      # Ship the Python half alongside the binary. Paths are listed explicitly
+      # (not python/**/*) so the local .venv/ and caches are never packaged.
       - python/cli.py
       - python/pyproject.toml
-      - python/**/*
+      - python/uv.lock
+      - python/vendor/**/*
+
+# Software Bill of Materials for each archive (requires syft on PATH; both
+# release and snapshot CI install the pinned version).
+sboms:
+  - id: archive
+    artifacts: archive
+
+nfpms:
+  - id: lazydeck
+    package_name: lazydeck
+    vendor: Kevin Coughlin
+    homepage: https://github.com/kevintcoughlin/lazydeck
+    maintainer: Kevin Coughlin <kevintcoughlin@users.noreply.github.com>
+    description: |-
+      lazydocker-style terminal UI for managing a fleet of Steam devkits.
+      Bundles a Python bridge (vendored steamos-devkit) driven via uv.
+    license: MIT
+    formats:
+      - deb
+    section: utils
+    priority: optional
+    # Binary lands at /usr/bin/lazydeck; the Python runtime at
+    # /usr/share/lazydeck/python is discovered relative to it (see
+    # internal/client.New).
+    bindir: /usr/bin
+    dependencies:
+      - rsync
+      - openssh-client
+      - ca-certificates
+    contents:
+      - src: ./python/cli.py
+        dst: /usr/share/lazydeck/python/cli.py
+      - src: ./python/pyproject.toml
+        dst: /usr/share/lazydeck/python/pyproject.toml
+      - src: ./python/uv.lock
+        dst: /usr/share/lazydeck/python/uv.lock
+      - src: ./python/vendor
+        dst: /usr/share/lazydeck/python/vendor
+        type: tree
+      - src: ./packaging/uv/{{ .Arch }}/uv
+        dst: /usr/libexec/lazydeck/uv
+        file_info:
+          mode: 0755
+      - src: ./LICENSE
+        dst: /usr/share/doc/lazydeck/LICENSE
+      - src: ./NOTICE
+        dst: /usr/share/doc/lazydeck/NOTICE
+      - src: ./THIRD_PARTY_GO.md
+        dst: /usr/share/doc/lazydeck/THIRD_PARTY_GO.md
+      - src: ./packaging/uv/licenses/LICENSE-uv-APACHE
+        dst: /usr/share/doc/lazydeck/LICENSE-uv-APACHE
+      - src: ./packaging/uv/licenses/LICENSE-uv-MIT
+        dst: /usr/share/doc/lazydeck/LICENSE-uv-MIT
+    scripts:
+      postinstall: ./packaging/deb/postinstall.sh
 
 checksum:
   name_template: "checksums.txt"

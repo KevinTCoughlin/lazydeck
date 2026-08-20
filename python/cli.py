@@ -55,6 +55,33 @@ def emit(ok: bool, data=None, error: str | None = None, error_kind: str | None =
     print(json.dumps(payload, default=str))
 
 
+def validate_game_name(name: str) -> str:
+    """Validate a user-supplied gameid/shortcut name before it crosses the
+    bridge into a remote SSH command.
+
+    The vendored devkit_client interpolates the name into a shell command
+    line that runs on the device (``steamos-prepare-upload --gameid ...``,
+    ``steamos-delete --delete-title ...``). We ``shlex.quote`` it in the
+    vendored code so it can never inject additional commands, but names with
+    control characters (NUL/newlines) or a leading dash are still either
+    unsafe or misparsed as options by the remote argparse, so reject those
+    early with a clear ``invalid-input`` error instead of failing opaquely
+    on the device. Spaces, Unicode, and ordinary punctuation stay allowed to
+    respect Steam shortcut naming semantics."""
+    if name is None:
+        raise ValueError("game name is required")
+    stripped = name.strip()
+    if not stripped:
+        raise ValueError("game name must not be empty")
+    if len(name) > 255:
+        raise ValueError("game name is too long (max 255 characters)")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in name):
+        raise ValueError("game name must not contain control characters")
+    if name.startswith("-"):
+        raise ValueError("game name must not start with '-'")
+    return name
+
+
 def classify_error(exc: BaseException) -> str:
     """Best-effort categorization of a raised exception so the Go TUI can
     show a clearer message than a raw stack trace string (e.g. distinguish
@@ -103,7 +130,16 @@ def cmd_connection_info(args: argparse.Namespace) -> None:
         http_port=ns.http_port,
     )
     _, key_path, _ = dk.ensure_devkit_key()
-    emit(True, {"address": machine.address, "login": machine.login, "key_path": key_path})
+    emit(
+        True,
+        {
+            "address": machine.address,
+            "login": machine.login,
+            "key_path": key_path,
+            "known_hosts_path": dk.devkit_known_hosts_path(),
+            "strict_host_keys": dk.ssh_strict_host_keys(),
+        },
+    )
 
 
 def cmd_list_games(args: argparse.Namespace) -> None:
@@ -113,12 +149,13 @@ def cmd_list_games(args: argparse.Namespace) -> None:
 
 
 def cmd_deploy(args: argparse.Namespace) -> None:
+    name = validate_game_name(args.name)
     directory = Path(args.directory).expanduser()
     if not directory.is_dir():
         raise ValueError(f"--directory {args.directory!r} does not exist or is not a directory")
 
     ns = _machine_args(args.machine, args.login)
-    ns.name = args.name
+    ns.name = name
     ns.directory = str(directory)
     ns.delete_extraneous = args.delete_extraneous
     ns.skip_newer_files = False
@@ -139,12 +176,13 @@ def cmd_deploy(args: argparse.Namespace) -> None:
 
 
 def cmd_delete(args: argparse.Namespace) -> None:
+    name = validate_game_name(args.name)
     ns = _machine_args(args.machine, args.login)
-    ns.gameid = args.name
+    ns.gameid = name
     ns.delete_all = False
     ns.reset_steam_client = False
     dk.delete_title(ns)
-    emit(True, {"deleted": args.name})
+    emit(True, {"deleted": name})
 
 
 def cmd_sync_logs(args: argparse.Namespace) -> None:
@@ -153,7 +191,12 @@ def cmd_sync_logs(args: argparse.Namespace) -> None:
 
     ns = _machine_args(args.machine, args.login)
     ns.name = args.name
-    ns.directory = str(directory)
+    # The vendored devkit_client.sync_logs reads ``local_folder`` (not
+    # ``directory``) and, after our vendored fix, honors ``login``. Set the
+    # attribute name the API actually consumes so logs land in the requested
+    # directory instead of raising AttributeError. See test_cli.SyncLogsTests
+    # for the namespace regression guard.
+    ns.local_folder = str(directory)
     dk.sync_logs(ns)
     emit(True, {"synced_to": str(directory)})
 
@@ -177,14 +220,13 @@ def cmd_discover(args: argparse.Namespace) -> None:
         zeroconf.ServiceBrowser(zc, dk.STEAM_DEVKIT_TYPE, listener)
         time.sleep(args.timeout)
 
-        found = []
-        for name in listener.devkits.keys():
-            address = listener.address_for_service(name)
-            found.append({
-                "name": name,
-                "address": address,
-                "port": listener.port_for_service(name),
-            })
+        # snapshot_devkits() resolves name/address/port atomically under the
+        # listener's lock, so iterating results here can't race with the
+        # zeroconf browser thread mutating the underlying dict.
+        found = [
+            {"name": name, "address": address, "port": port}
+            for name, address, port in listener.snapshot_devkits()
+        ]
         emit(True, found)
     finally:
         # ServiceListener() sets a module-level singleton; clear it so a

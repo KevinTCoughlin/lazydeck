@@ -20,7 +20,12 @@ import (
 // Client drives the headless Python CLI for one lazydeck process.
 type Client struct {
 	PythonDir string // directory containing pyproject.toml + cli.py
-	Timeout   time.Duration
+	UVPath    string // resolved uv executable
+	// Timeout is a fallback deadline applied only when a caller invokes an
+	// operation with a context that has no deadline of its own. Callers with
+	// operation-appropriate deadlines (the TUI sets e.g. 10m for deploy, 20s
+	// for status) are respected as-is and never clamped to this value.
+	Timeout time.Duration
 }
 
 type envelope struct {
@@ -47,33 +52,104 @@ func (e *CLIError) Error() string { return e.Message }
 // "python" sibling found by walking up from the current source file (dev
 // layout, i.e. running via `go run ./cmd/lazydeck` inside the repo).
 func New() (*Client, error) {
+	uvPath, err := findUV()
+	if err != nil {
+		return nil, fmt.Errorf("uv is required to run the bundled Python bridge: %w", err)
+	}
+
 	if dir := os.Getenv("LAZYDECK_PYTHON_DIR"); dir != "" {
-		return &Client{PythonDir: dir, Timeout: 60 * time.Second}, nil
+		if !isPythonDir(dir) {
+			return nil, fmt.Errorf("LAZYDECK_PYTHON_DIR=%q does not contain cli.py, pyproject.toml, and uv.lock", dir)
+		}
+		return &Client{PythonDir: dir, UVPath: uvPath, Timeout: 60 * time.Second}, nil
 	}
 
+	var candidates []string
 	if exe, err := os.Executable(); err == nil {
-		candidate := filepath.Join(filepath.Dir(exe), "python")
-		if isPythonDir(candidate) {
-			return &Client{PythonDir: candidate, Timeout: 60 * time.Second}, nil
+		executables := []string{exe}
+		if resolved, resolveErr := filepath.EvalSymlinks(exe); resolveErr == nil && resolved != exe {
+			executables = append(executables, resolved)
+		}
+		for _, executable := range executables {
+			binDir := filepath.Dir(executable)
+			candidates = append(candidates,
+				filepath.Join(binDir, "python"),
+				filepath.Join(binDir, "..", "share", "lazydeck", "python"),
+				filepath.Join(binDir, "..", "libexec", "python"),
+			)
 		}
 	}
 
-	// Dev layout: running via `go run ./cmd/lazydeck` inside the repo.
-	// runtime.Caller(0) resolves to this source file's compile-time path,
-	// so we can walk internal/client/client.go -> repo root -> python/.
+	if dataDir := os.Getenv("XDG_DATA_HOME"); dataDir != "" {
+		candidates = append(candidates, filepath.Join(dataDir, "lazydeck", "python"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(home, ".local", "share", "lazydeck", "python"),
+			filepath.Join(home, "Library", "Application Support", "lazydeck", "python"),
+		)
+	}
+
 	if _, thisFile, _, ok := runtime.Caller(0); ok {
-		candidate := filepath.Join(filepath.Dir(thisFile), "..", "..", "python")
+		candidates = append(candidates, filepath.Join(filepath.Dir(thisFile), "..", "..", "python"))
+	}
+
+	checked := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate = filepath.Clean(candidate)
+		checked = append(checked, candidate)
 		if isPythonDir(candidate) {
-			return &Client{PythonDir: candidate, Timeout: 60 * time.Second}, nil
+			return &Client{PythonDir: candidate, UVPath: uvPath, Timeout: 60 * time.Second}, nil
 		}
 	}
 
-	return nil, fmt.Errorf("could not locate the python/ directory; set LAZYDECK_PYTHON_DIR")
+	return nil, fmt.Errorf("could not locate a complete Python runtime (checked %s); set LAZYDECK_PYTHON_DIR", strings.Join(checked, ", "))
+}
+
+func findUV() (string, error) {
+	if path := os.Getenv("LAZYDECK_UV"); path != "" {
+		if isExecutable(path) {
+			return path, nil
+		}
+		return "", fmt.Errorf("LAZYDECK_UV=%q is not an executable file", path)
+	}
+	if path, err := exec.LookPath("uv"); err == nil {
+		return path, nil
+	}
+	if exe, err := os.Executable(); err == nil {
+		executables := []string{exe}
+		if resolved, resolveErr := filepath.EvalSymlinks(exe); resolveErr == nil && resolved != exe {
+			executables = append(executables, resolved)
+		}
+		for _, executable := range executables {
+			binDir := filepath.Dir(executable)
+			for _, candidate := range []string{
+				filepath.Join(binDir, "uv"),
+				filepath.Join(binDir, "..", "libexec", "lazydeck", "uv"),
+				filepath.Join(binDir, "..", "libexec", "uv"),
+			} {
+				if isExecutable(candidate) {
+					return filepath.Clean(candidate), nil
+				}
+			}
+		}
+	}
+	return "", exec.ErrNotFound
+}
+
+func isExecutable(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 }
 
 func isPythonDir(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, "cli.py"))
-	return err == nil
+	for _, name := range []string{"cli.py", "pyproject.toml", "uv.lock"} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil || info.IsDir() {
+			return false
+		}
+	}
+	return true
 }
 
 // run invokes `uv run --project PythonDir python cli.py <args...>` and
@@ -89,12 +165,23 @@ func (c *Client) Preview(args ...string) string {
 }
 
 func (c *Client) run(ctx context.Context, args ...string) (json.RawMessage, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	ctx, cancel := c.withFallbackTimeout(ctx)
 	defer cancel()
 
 	full := append([]string{"run", "--project", c.PythonDir, "python", "cli.py"}, args...)
-	cmd := exec.CommandContext(ctx, "uv", full...)
+	cmd := exec.CommandContext(ctx, c.UVPath, full...)
 	cmd.Dir = c.PythonDir
+	cmd.Env = os.Environ()
+	if os.Getenv("UV_PROJECT_ENVIRONMENT") == "" {
+		if cacheDir, err := os.UserCacheDir(); err == nil {
+			cmd.Env = append(cmd.Env, "UV_PROJECT_ENVIRONMENT="+filepath.Join(cacheDir, "lazydeck", "python"))
+		}
+	}
+	// uv spawns python, which in turn spawns ssh/rsync; the default
+	// CommandContext behavior only kills uv on cancel, orphaning those
+	// descendants. configureCancellation puts the child in its own process
+	// group and kills the whole group with a bounded WaitDelay backstop.
+	configureCancellation(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -102,6 +189,18 @@ func (c *Client) run(ctx context.Context, args ...string) (json.RawMessage, erro
 
 	runErr := cmd.Run()
 	return parseEnvelope(stdout.Bytes(), stderr.Bytes(), runErr)
+}
+
+// withFallbackTimeout respects the caller's deadline: operations like deploy
+// legitimately run for minutes, so run must not clamp every call to c.Timeout.
+// It only imposes c.Timeout when the caller supplied a context with no
+// deadline of its own (and c.Timeout > 0); otherwise it returns ctx unchanged
+// with a no-op cancel.
+func (c *Client) withFallbackTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, hasDeadline := ctx.Deadline(); hasDeadline || c.Timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, c.Timeout)
 }
 
 // parseEnvelope decodes cli.py's {"ok":bool,"data":any,"error":string}
@@ -130,9 +229,11 @@ func parseEnvelope(stdout, stderr []byte, runErr error) (json.RawMessage, error)
 // plus the local devkit SSH private key path, so callers (the TUI) can open
 // a real interactive `ssh` session without going through paramiko.
 type ConnectionInfo struct {
-	Address string `json:"address"`
-	Login   string `json:"login"`
-	KeyPath string `json:"key_path"`
+	Address        string `json:"address"`
+	Login          string `json:"login"`
+	KeyPath        string `json:"key_path"`
+	KnownHostsPath string `json:"known_hosts_path"`
+	StrictHostKeys bool   `json:"strict_host_keys"`
 }
 
 func (c *Client) ConnectionInfo(ctx context.Context, machine, login string) (*ConnectionInfo, error) {

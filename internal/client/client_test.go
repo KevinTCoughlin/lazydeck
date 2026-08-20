@@ -4,19 +4,65 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestNewLocatesPythonDirViaEnv(t *testing.T) {
-	t.Setenv("LAZYDECK_PYTHON_DIR", "/some/custom/path")
+	dir := makePythonDir(t)
+	t.Setenv("LAZYDECK_PYTHON_DIR", dir)
 	c, err := New()
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if c.PythonDir != "/some/custom/path" {
+	if c.PythonDir != dir {
 		t.Errorf("expected env override to win, got %q", c.PythonDir)
 	}
+	if c.UVPath == "" {
+		t.Fatal("expected uv executable to be resolved")
+	}
+}
+
+func TestNewRejectsIncompleteEnvRuntime(t *testing.T) {
+	t.Setenv("LAZYDECK_PYTHON_DIR", t.TempDir())
+	if _, err := New(); err == nil {
+		t.Fatal("expected incomplete LAZYDECK_PYTHON_DIR to fail")
+	}
+}
+
+func TestFindUVHonorsExecutableOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "uv")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LAZYDECK_UV", path)
+	got, err := findUV()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != path {
+		t.Fatalf("findUV() = %q, want %q", got, path)
+	}
+}
+
+func TestFindUVRejectsInvalidOverride(t *testing.T) {
+	t.Setenv("LAZYDECK_UV", filepath.Join(t.TempDir(), "missing"))
+	if _, err := findUV(); err == nil {
+		t.Fatal("expected invalid LAZYDECK_UV to fail")
+	}
+}
+
+func makePythonDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, name := range []string{"cli.py", "pyproject.toml", "uv.lock"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte{}, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
 }
 
 func TestNewLocatesPythonDirViaDevLayout(t *testing.T) {
@@ -143,5 +189,54 @@ func TestDiscoverWithRetryNoRetryOnSuccess(t *testing.T) {
 	}
 	if len(found) != 0 {
 		t.Fatalf("expected no devices found, got %+v", found)
+	}
+}
+
+// TestWithFallbackTimeoutRespectsCallerDeadline guards finding #2: run must
+// never shrink a caller's deadline to c.Timeout. A deploy passes a 10-minute
+// context; a 60s fallback timeout must not clamp it.
+func TestWithFallbackTimeoutRespectsCallerDeadline(t *testing.T) {
+	c := &Client{Timeout: 60 * time.Second}
+	callerDeadline := time.Now().Add(10 * time.Minute)
+	ctx, cancelCaller := context.WithDeadline(context.Background(), callerDeadline)
+	defer cancelCaller()
+
+	got, cancel := c.withFallbackTimeout(ctx)
+	defer cancel()
+
+	dl, ok := got.Deadline()
+	if !ok {
+		t.Fatal("expected the caller's deadline to be preserved")
+	}
+	if dl.Before(callerDeadline.Add(-time.Second)) {
+		t.Fatalf("caller deadline was clamped: got %v want ~%v", dl, callerDeadline)
+	}
+}
+
+// TestWithFallbackTimeoutAppliesDefaultWhenNoDeadline guards the fallback:
+// when a caller supplies no deadline, c.Timeout is imposed.
+func TestWithFallbackTimeoutAppliesDefaultWhenNoDeadline(t *testing.T) {
+	c := &Client{Timeout: 30 * time.Second}
+	before := time.Now()
+	ctx, cancel := c.withFallbackTimeout(context.Background())
+	defer cancel()
+
+	dl, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected a fallback deadline to be applied")
+	}
+	if d := dl.Sub(before); d < 25*time.Second || d > 35*time.Second {
+		t.Fatalf("expected ~30s fallback deadline, got %v", d)
+	}
+}
+
+// TestWithFallbackTimeoutNoDefaultLeavesContextOpen verifies a zero Timeout
+// with no caller deadline leaves the context deadline-free.
+func TestWithFallbackTimeoutNoDefaultLeavesContextOpen(t *testing.T) {
+	c := &Client{Timeout: 0}
+	ctx, cancel := c.withFallbackTimeout(context.Background())
+	defer cancel()
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatal("expected no deadline when Timeout is 0 and caller has none")
 	}
 }

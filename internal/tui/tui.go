@@ -39,7 +39,13 @@ type deviceState struct {
 	dev       config.Device
 	statusMsg string // one-line human summary, e.g. "online · SteamOS 3.6 · plasma-wayland"
 	busy      bool
-	lastErr   error
+	// opID identifies the operation currently occupying this device (0 when
+	// idle/never-run). A device accepts at most one manual operation at a
+	// time; async completions carry the opID they were started with so a
+	// stale or superseded result can never clear a newer operation's busy
+	// state or overwrite its status. See Model.beginOp / Model.finishOp.
+	opID    uint64
+	lastErr error
 }
 
 // errorKind returns the coarse category of lastErr (see client.CLIError),
@@ -119,6 +125,10 @@ type Model struct {
 
 	customCmds     []config.CustomCommand
 	customCmdIndex map[string]config.CustomCommand
+
+	// opCounter hands out monotonically increasing operation ids so each
+	// started device operation is uniquely identifiable (see deviceState.opID).
+	opCounter uint64
 }
 
 var reservedKeys = map[string]bool{
@@ -222,25 +232,18 @@ func autoRefreshTickCmd(d time.Duration) tea.Cmd {
 
 type statusResultMsg struct {
 	index int
+	opID  uint64
 	msg   string
 	err   error
 }
 
-func refreshAllCmd(cli *client.Client, devices []deviceState) tea.Cmd {
-	cmds := make([]tea.Cmd, 0, len(devices))
-	for i := range devices {
-		cmds = append(cmds, refreshOneCmd(cli, i, devices[i].dev))
-	}
-	return tea.Batch(cmds...)
-}
-
-func refreshOneCmd(cli *client.Client, index int, dev config.Device) tea.Cmd {
+func refreshOneCmd(cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		st, err := cli.Status(ctx, dev.Machine, dev.Login)
 		if err != nil {
-			return statusResultMsg{index: index, err: err}
+			return statusResultMsg{index: index, opID: opID, err: err}
 		}
 		summary := "online"
 		if session, ok := st.Raw["session"].(string); ok && session != "" {
@@ -249,40 +252,41 @@ func refreshOneCmd(cli *client.Client, index int, dev config.Device) tea.Cmd {
 		if osInfo, ok := st.Raw["os"].(string); ok && osInfo != "" {
 			summary += " · " + osInfo
 		}
-		return statusResultMsg{index: index, msg: summary}
+		return statusResultMsg{index: index, opID: opID, msg: summary}
 	}
 }
 
 type actionDoneMsg struct {
 	index  int
+	opID   uint64
 	action string
 	err    error
 }
 
-func registerCmd(cli *client.Client, index int, dev config.Device) tea.Cmd {
+func registerCmd(cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		err := cli.Register(ctx, dev.Machine)
-		return actionDoneMsg{index: index, action: "register", err: err}
+		return actionDoneMsg{index: index, opID: opID, action: "register", err: err}
 	}
 }
 
-func deployCmd(cli *client.Client, index int, dev config.Device, name, dir string) tea.Cmd {
+func deployCmd(cli *client.Client, index int, opID uint64, dev config.Device, name, dir string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		err := cli.Deploy(ctx, dev.Machine, dev.Login, name, dir, false)
-		return actionDoneMsg{index: index, action: fmt.Sprintf("deploy %s", name), err: err}
+		return actionDoneMsg{index: index, opID: opID, action: fmt.Sprintf("deploy %s", name), err: err}
 	}
 }
 
-func syncLogsCmd(cli *client.Client, index int, dev config.Device, name, dir string) tea.Cmd {
+func syncLogsCmd(cli *client.Client, index int, opID uint64, dev config.Device, name, dir string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		err := cli.SyncLogs(ctx, dev.Machine, dev.Login, name, dir)
-		return actionDoneMsg{index: index, action: fmt.Sprintf("sync-logs %s", name), err: err}
+		return actionDoneMsg{index: index, opID: opID, action: fmt.Sprintf("sync-logs %s", name), err: err}
 	}
 }
 
@@ -297,27 +301,28 @@ func deleteCommandPreview(cli *client.Client, dev config.Device, name string) st
 	return cli.Preview(args...)
 }
 
-func deleteCmd(cli *client.Client, index int, dev config.Device, name string) tea.Cmd {
+func deleteCmd(cli *client.Client, index int, opID uint64, dev config.Device, name string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		err := cli.Delete(ctx, dev.Machine, dev.Login, name)
-		return actionDoneMsg{index: index, action: fmt.Sprintf("delete %s", name), err: err}
+		return actionDoneMsg{index: index, opID: opID, action: fmt.Sprintf("delete %s", name), err: err}
 	}
 }
 
 type listGamesResultMsg struct {
 	index int
+	opID  uint64
 	games []any
 	err   error
 }
 
-func listGamesCmd(cli *client.Client, index int, dev config.Device) tea.Cmd {
+func listGamesCmd(cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		games, err := cli.ListGames(ctx, dev.Machine, dev.Login)
-		return listGamesResultMsg{index: index, games: games, err: err}
+		return listGamesResultMsg{index: index, opID: opID, games: games, err: err}
 	}
 }
 
@@ -340,26 +345,29 @@ func discoverCmd(cli *client.Client, forWizard bool) tea.Cmd {
 // real interactive `ssh` process for the remote-shell keybinding.
 type connInfoMsg struct {
 	index int
+	opID  uint64
 	info  *client.ConnectionInfo
 	err   error
 }
 
-func connectionInfoCmd(cli *client.Client, index int, dev config.Device) tea.Cmd {
+func connectionInfoCmd(cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		info, err := cli.ConnectionInfo(ctx, dev.Machine, dev.Login)
-		return connInfoMsg{index: index, info: info, err: err}
+		return connInfoMsg{index: index, opID: opID, info: info, err: err}
 	}
 }
 
 type shellExitedMsg struct {
 	index int
+	opID  uint64
 	err   error
 }
 
 type customCmdDoneMsg struct {
 	index  int
+	opID   uint64
 	name   string
 	output string
 	err    error
@@ -387,11 +395,11 @@ func (b *tailBuffer) String() string {
 	return string(b.data)
 }
 
-func customCommandCmd(index int, dev config.Device, custom config.CustomCommand) tea.Cmd {
+func customCommandCmd(index int, opID uint64, dev config.Device, custom config.CustomCommand) tea.Cmd {
 	return func() tea.Msg {
 		expanded, err := custom.Expand(dev)
 		if err != nil {
-			return customCmdDoneMsg{index: index, name: custom.Name, err: err}
+			return customCmdDoneMsg{index: index, opID: opID, name: custom.Name, err: err}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -413,7 +421,7 @@ func customCommandCmd(index int, dev config.Device, custom config.CustomCommand)
 		cmd.Stdout = output
 		cmd.Stderr = output
 		err = cmd.Run()
-		return customCmdDoneMsg{index: index, name: custom.Name, output: output.String(), err: err}
+		return customCmdDoneMsg{index: index, opID: opID, name: custom.Name, output: output.String(), err: err}
 	}
 }
 
@@ -462,7 +470,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateNormal(msg)
 
 	case statusResultMsg:
-		m.devices[msg.index].busy = false
+		if !m.finishOp(msg.index, msg.opID) {
+			return m, nil // stale/superseded refresh; ignore
+		}
 		if msg.err != nil {
 			m.devices[msg.index].statusMsg = "offline / unpaired"
 			m.devices[msg.index].lastErr = msg.err
@@ -473,19 +483,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case actionDoneMsg:
-		m.devices[msg.index].busy = false
+		if !m.finishOp(msg.index, msg.opID) {
+			return m, nil
+		}
 		name := m.devices[msg.index].dev.Name
 		if msg.err != nil {
 			m.log = append(m.log, fmt.Sprintf("%s: %s FAILED: %v", name, msg.action, msg.err))
-		} else {
-			m.log = append(m.log, fmt.Sprintf("%s: %s OK", name, msg.action))
-			// re-check status after a successful action
-			return m, refreshOneCmd(m.cli, msg.index, m.devices[msg.index].dev)
+			return m, nil
+		}
+		m.log = append(m.log, fmt.Sprintf("%s: %s OK", name, msg.action))
+		// Re-check status after a successful action, as a fresh op so it
+		// can't be confused with the action that just finished.
+		if id, ok := m.beginOp(msg.index); ok {
+			return m, refreshOneCmd(m.cli, msg.index, id, m.devices[msg.index].dev)
 		}
 		return m, nil
 
 	case customCmdDoneMsg:
-		m.devices[msg.index].busy = false
+		if !m.finishOp(msg.index, msg.opID) {
+			return m, nil
+		}
 		name := m.devices[msg.index].dev.Name
 		output := strings.TrimSpace(msg.output)
 		if msg.err != nil {
@@ -502,24 +519,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case connInfoMsg:
-		m.devices[msg.index].busy = false
+		if msg.index < 0 || msg.index >= len(m.devices) || m.devices[msg.index].opID != msg.opID {
+			return m, nil
+		}
 		if msg.err != nil {
+			m.finishOp(msg.index, msg.opID)
 			m.log = append(m.log, fmt.Sprintf("%s: could not resolve ssh connection: %v", m.devices[msg.index].dev.Name, msg.err))
 			return m, nil
 		}
 		info := msg.info
+		strict := "no"
+		if info.StrictHostKeys {
+			strict = "accept-new"
+		}
 		sshCmd := exec.Command("ssh",
 			"-i", info.KeyPath,
 			"-o", "IdentitiesOnly=yes",
-			"-o", "StrictHostKeyChecking=accept-new",
+			"-o", "UserKnownHostsFile="+info.KnownHostsPath,
+			"-o", "StrictHostKeyChecking="+strict,
 			fmt.Sprintf("%s@%s", info.Login, info.Address),
 		)
-		index := msg.index
+		index, opID := msg.index, msg.opID
 		return m, tea.ExecProcess(sshCmd, func(err error) tea.Msg {
-			return shellExitedMsg{index: index, err: err}
+			return shellExitedMsg{index: index, opID: opID, err: err}
 		})
 
 	case shellExitedMsg:
+		if !m.finishOp(msg.index, msg.opID) {
+			return m, nil
+		}
 		name := m.devices[msg.index].dev.Name
 		if msg.err != nil {
 			m.log = append(m.log, fmt.Sprintf("%s: shell exited: %v", name, msg.err))
@@ -529,7 +557,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case listGamesResultMsg:
-		m.devices[msg.index].busy = false
+		if !m.finishOp(msg.index, msg.opID) {
+			return m, nil
+		}
 		name := m.devices[msg.index].dev.Name
 		if msg.err != nil {
 			m.log = append(m.log, fmt.Sprintf("%s: list-games FAILED: %v", name, msg.err))
@@ -603,10 +633,13 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if i < 0 {
 			break
 		}
-		d := m.devices[i]
-		m.devices[i].busy = true
-		m.log = append(m.log, fmt.Sprintf("registering %s ...", d.dev.Name))
-		return m, registerCmd(m.cli, i, d.dev)
+		id, ok := m.beginOp(i)
+		if !ok {
+			m.log = append(m.log, fmt.Sprintf("%s is busy; ignoring register", m.devices[i].dev.Name))
+			break
+		}
+		m.log = append(m.log, fmt.Sprintf("registering %s ...", m.devices[i].dev.Name))
+		return m, registerCmd(m.cli, i, id, m.devices[i].dev)
 	case " ":
 		i := m.selectedDeviceIndex()
 		if i < 0 {
@@ -640,10 +673,13 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if i < 0 {
 			break
 		}
-		d := m.devices[i]
-		m.devices[i].busy = true
-		m.log = append(m.log, fmt.Sprintf("listing games on %s ...", d.dev.Name))
-		return m, listGamesCmd(m.cli, i, d.dev)
+		id, ok := m.beginOp(i)
+		if !ok {
+			m.log = append(m.log, fmt.Sprintf("%s is busy; ignoring list-games", m.devices[i].dev.Name))
+			break
+		}
+		m.log = append(m.log, fmt.Sprintf("listing games on %s ...", m.devices[i].dev.Name))
+		return m, listGamesCmd(m.cli, i, id, m.devices[i].dev)
 	case "f":
 		m.log = append(m.log, "discovering devkits on the LAN (mDNS, ~4s)...")
 		return m, discoverCmd(m.cli, false)
@@ -658,10 +694,13 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if i < 0 {
 			break
 		}
-		d := m.devices[i]
-		m.devices[i].busy = true
-		m.log = append(m.log, fmt.Sprintf("opening remote shell to %s ...", d.dev.Name))
-		return m, connectionInfoCmd(m.cli, i, d.dev)
+		id, ok := m.beginOp(i)
+		if !ok {
+			m.log = append(m.log, fmt.Sprintf("%s is busy; ignoring shell", m.devices[i].dev.Name))
+			break
+		}
+		m.log = append(m.log, fmt.Sprintf("opening remote shell to %s ...", m.devices[i].dev.Name))
+		return m, connectionInfoCmd(m.cli, i, id, m.devices[i].dev)
 	default:
 		if command, ok := m.customCmdIndex[msg.String()]; ok {
 			return m.runCustomCommand(command)
@@ -674,13 +713,13 @@ func (m Model) runCustomCommand(command config.CustomCommand) (tea.Model, tea.Cm
 	indices := m.targetIndices()
 	cmds := make([]tea.Cmd, 0, len(indices))
 	for _, i := range indices {
-		if i < 0 {
+		id, ok := m.beginOp(i)
+		if !ok {
 			continue
 		}
 		device := m.devices[i]
-		m.devices[i].busy = true
 		m.log = append(m.log, fmt.Sprintf("running %q on %s ...", command.Name, device.dev.Name))
-		cmds = append(cmds, customCommandCmd(i, device.dev, command))
+		cmds = append(cmds, customCommandCmd(i, id, device.dev, command))
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -762,11 +801,46 @@ func (m Model) anyDeviceBusy() bool {
 	return false
 }
 
-func (m *Model) beginRefresh() tea.Cmd {
-	for i := range m.devices {
-		m.devices[i].busy = true
+// beginOp reserves device i for a new operation: it marks the device busy
+// under a fresh, unique operation id and returns that id to stamp into the
+// async command. It returns (0, false) if i is out of range or the device is
+// already running an operation, which is how manual device operations are
+// serialized — callers must not start a second concurrent operation on a
+// busy device.
+func (m *Model) beginOp(i int) (uint64, bool) {
+	if i < 0 || i >= len(m.devices) || m.devices[i].busy {
+		return 0, false
 	}
-	return refreshAllCmd(m.cli, m.devices)
+	m.opCounter++
+	m.devices[i].busy = true
+	m.devices[i].opID = m.opCounter
+	return m.opCounter, true
+}
+
+// finishOp clears busy for device i only if the completing operation id still
+// matches the device's current operation, so a stale or superseded async
+// result can never clear a newer operation's busy state. It returns whether
+// the completion was the device's current operation.
+func (m *Model) finishOp(i int, opID uint64) bool {
+	if i < 0 || i >= len(m.devices) || m.devices[i].opID != opID {
+		return false
+	}
+	m.devices[i].busy = false
+	return true
+}
+
+func (m *Model) beginRefresh() tea.Cmd {
+	cmds := make([]tea.Cmd, 0, len(m.devices))
+	for i := range m.devices {
+		// Skip devices already running an operation so a fleet refresh never
+		// clobbers an in-flight deploy/delete/etc. or its operation id.
+		id, ok := m.beginOp(i)
+		if !ok {
+			continue
+		}
+		cmds = append(cmds, refreshOneCmd(m.cli, i, id, m.devices[i].dev))
+	}
+	return tea.Batch(cmds...)
 }
 
 // updateFilterInput handles keystrokes while the '/' fuzzy-filter query is
@@ -894,10 +968,13 @@ func (m Model) advancePrompt(value string) (tea.Model, tea.Cmd) {
 		m.input.Blur()
 		cmds := make([]tea.Cmd, 0, len(m.promptIndices))
 		for _, i := range m.promptIndices {
-			d := m.devices[i]
-			m.devices[i].busy = true
-			m.log = append(m.log, fmt.Sprintf("deploying %s (%s) to %s ...", m.pendingName, value, d.dev.Name))
-			cmds = append(cmds, deployCmd(m.cli, i, d.dev, m.pendingName, value))
+			id, ok := m.beginOp(i)
+			if !ok {
+				m.log = append(m.log, fmt.Sprintf("%s is busy; skipping deploy", m.devices[i].dev.Name))
+				continue
+			}
+			m.log = append(m.log, fmt.Sprintf("deploying %s (%s) to %s ...", m.pendingName, value, m.devices[i].dev.Name))
+			cmds = append(cmds, deployCmd(m.cli, i, id, m.devices[i].dev, m.pendingName, value))
 		}
 		m.selected = make(map[int]bool)
 		return m, tea.Batch(cmds...)
@@ -909,10 +986,13 @@ func (m Model) advancePrompt(value string) (tea.Model, tea.Cmd) {
 		m.input.Blur()
 		cmds := make([]tea.Cmd, 0, len(m.promptIndices))
 		for _, i := range m.promptIndices {
-			d := m.devices[i]
-			m.devices[i].busy = true
-			m.log = append(m.log, fmt.Sprintf("syncing logs for %s from %s ...", m.pendingName, d.dev.Name))
-			cmds = append(cmds, syncLogsCmd(m.cli, i, d.dev, m.pendingName, value))
+			id, ok := m.beginOp(i)
+			if !ok {
+				m.log = append(m.log, fmt.Sprintf("%s is busy; skipping sync-logs", m.devices[i].dev.Name))
+				continue
+			}
+			m.log = append(m.log, fmt.Sprintf("syncing logs for %s from %s ...", m.pendingName, m.devices[i].dev.Name))
+			cmds = append(cmds, syncLogsCmd(m.cli, i, id, m.devices[i].dev, m.pendingName, value))
 		}
 		m.selected = make(map[int]bool)
 		return m, tea.Batch(cmds...)
@@ -940,10 +1020,14 @@ func (m Model) updateDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	cmds := make([]tea.Cmd, 0, len(m.promptIndices))
 	for _, i := range m.promptIndices {
+		id, ok := m.beginOp(i)
+		if !ok {
+			m.log = append(m.log, fmt.Sprintf("%s is busy; skipping delete", m.devices[i].dev.Name))
+			continue
+		}
 		d := m.devices[i]
-		m.devices[i].busy = true
 		m.log = append(m.log, fmt.Sprintf("deleting %s from %s (%s) ...", m.pendingName, d.dev.Name, deleteCommandPreview(m.cli, d.dev, m.pendingName)))
-		cmds = append(cmds, deleteCmd(m.cli, i, d.dev, m.pendingName))
+		cmds = append(cmds, deleteCmd(m.cli, i, id, d.dev, m.pendingName))
 	}
 	m.selected = make(map[int]bool)
 	return m, tea.Batch(cmds...)
@@ -993,8 +1077,8 @@ func (m Model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = len(m.devices) - 1
 		m.mode = modeNormal
 		m.log = append(m.log, fmt.Sprintf("added %q (%s) — registering ...", dev.Name, dev.Machine))
-		m.devices[m.cursor].busy = true
-		return m, registerCmd(m.cli, m.cursor, dev)
+		id, _ := m.beginOp(m.cursor)
+		return m, registerCmd(m.cli, m.cursor, id, dev)
 	}
 	return m, nil
 }
