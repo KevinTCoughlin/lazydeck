@@ -4,15 +4,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/debug"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/kevintcoughlin/lazydeck/internal/client"
 	"github.com/kevintcoughlin/lazydeck/internal/config"
+	"github.com/kevintcoughlin/lazydeck/internal/server"
 	"github.com/kevintcoughlin/lazydeck/internal/tui"
 )
 
@@ -34,6 +38,12 @@ func main() {
 			return
 		case "help", "--help", "-h":
 			printUsage()
+			return
+		case "serve":
+			if err := runServe(); err != nil {
+				fmt.Fprintln(os.Stderr, "lazydeck:", err)
+				os.Exit(1)
+			}
 			return
 		}
 	}
@@ -83,6 +93,7 @@ func printUsage() {
 
 Usage:
   lazydeck            Launch the interactive TUI.
+  lazydeck serve      Run the local engine-integration API (see issue #13).
   lazydeck version    Print version and build metadata.
   lazydeck help       Show this help.
 
@@ -125,4 +136,29 @@ func run() error {
 	p := tea.NewProgram(m, tea.WithMouseCellMotion())
 	_, err = p.Run()
 	return err
+}
+
+// runServe starts the local engine-integration API (issue #13) and blocks
+// until it shuts down or is interrupted. Config is loaded once at startup,
+// matching run()'s behavior for the TUI: the device list is not expected to
+// change out from under a running server in this first slice.
+func runServe() error {
+	cli, err := client.New()
+	if err != nil {
+		return err
+	}
+
+	path, err := config.DefaultPath()
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	return server.Run(ctx, cli, cfg)
 }

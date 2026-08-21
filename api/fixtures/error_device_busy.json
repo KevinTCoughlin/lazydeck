@@ -1,0 +1,6 @@
+{
+  "error": {
+    "kind": "device-busy",
+    "message": "device has a job already queued or running"
+  }
+}
