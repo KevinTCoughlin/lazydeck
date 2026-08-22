@@ -228,6 +228,10 @@ func _connect() -> void:
 	if _client:
 		_client.queue_free()
 		_client = null
+	# Reconnecting invalidates any job this dock was tracking against the
+	# old client — there's nothing left to poll or cancel.
+	_current_job_id = ""
+	_busy = false
 
 	var located := LazyDeckConnectionLocator.load_connection()
 	if not located.get("ok", false):
@@ -288,10 +292,11 @@ func _refresh_devices(client: LazyDeckClient) -> void:
 func _update_buttons() -> void:
 	var has_selection := not _devices_list.get_selected_items().is_empty()
 	var connected := _client != null
-	_pair_button.disabled = not connected or not has_selection
+	_pair_button.disabled = _busy or not connected or not has_selection
+	_discover_button.disabled = _busy or not connected
 	_build_deploy_button.disabled = _busy or not connected or not has_selection
 	_sync_logs_button.disabled = _busy or not connected or not has_selection
-	_cancel_job_button.disabled = _current_job_id == ""
+	_cancel_job_button.disabled = not connected or _current_job_id == ""
 
 
 func _on_connect_pressed() -> void:
@@ -351,7 +356,10 @@ func _selected_device() -> Dictionary:
 	var selected := _devices_list.get_selected_items()
 	if selected.is_empty():
 		return {}
-	return _devices[selected[0]]
+	var index: int = selected[0]
+	if index < 0 or index >= _devices.size():
+		return {}
+	return _devices[index]
 
 
 ## Validates and gathers everything _on_build_deploy_pressed needs, or
@@ -374,6 +382,9 @@ func _validate_deploy_inputs() -> Dictionary:
 	var game_id := _game_id_field.text.strip_edges()
 	if output_dir == "" or executable_name == "" or game_id == "":
 		_log_line("Output directory, executable name, and game ID are all required.")
+		return {}
+	if not output_dir.is_absolute_path():
+		_log_line("Output directory must be an absolute path.")
 		return {}
 	return {
 		"device_id": device.get("id", ""),
@@ -449,6 +460,9 @@ func _validate_logs_sync_inputs() -> Dictionary:
 	var logs_dir := _logs_dir_field.text.strip_edges()
 	if logs_dir == "":
 		_log_line("Local logs directory is required.")
+		return {}
+	if not logs_dir.is_absolute_path():
+		_log_line("Local logs directory must be an absolute path.")
 		return {}
 	return {"device_id": device.get("id", ""), "logs_dir": logs_dir}
 

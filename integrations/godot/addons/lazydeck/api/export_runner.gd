@@ -68,6 +68,9 @@ static func export_preset(
 	if platform == null:
 		return {"ok": false, "error": "preset %s has no export platform" % preset_name}
 
+	if not output_directory.is_absolute_path():
+		return {"ok": false, "error": "output_directory must be an absolute path"}
+
 	if not DirAccess.dir_exists_absolute(output_directory):
 		var mkdir_err := DirAccess.make_dir_recursive_absolute(output_directory)
 		if mkdir_err != OK:
