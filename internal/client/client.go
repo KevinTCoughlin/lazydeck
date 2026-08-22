@@ -354,14 +354,22 @@ func (c *Client) ListGames(ctx context.Context, machine, login string) ([]any, e
 }
 
 // Deploy rsyncs a local build directory to the devkit and registers it as a
-// launchable Steam shortcut named gameID.
-func (c *Client) Deploy(ctx context.Context, machine, login, gameID, directory string, deleteExtraneous bool) error {
+// launchable Steam shortcut named gameID. argv, if non-empty, is the
+// command-line the shortcut launches with (see python/cli.py's cmd_deploy
+// --argv); without it, steam-client-create-shortcut has nothing to launch
+// and the deploy fails once it reaches that step, even though the rsync
+// itself succeeds.
+func (c *Client) Deploy(ctx context.Context, machine, login, gameID, directory string, deleteExtraneous bool, argv []string) error {
 	args := []string{"deploy", "--machine", machine, "--name", gameID, "--directory", directory}
 	if login != "" {
 		args = append(args, "--login", login)
 	}
 	if deleteExtraneous {
 		args = append(args, "--delete-extraneous")
+	}
+	if len(argv) > 0 {
+		args = append(args, "--argv")
+		args = append(args, argv...)
 	}
 	_, err := c.run(ctx, args...)
 	return err

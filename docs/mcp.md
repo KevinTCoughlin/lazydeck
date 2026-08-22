@@ -79,7 +79,7 @@ $ lazydeck mcp
 | Tool | Wraps |
 | --- | --- |
 | `pair_device` | `POST /v1/devices/{id}/pair` |
-| `deploy` | `POST /v1/devices/{id}/deployments` (blocks up to 11 minutes polling the job to completion, then returns its final snapshot; if it times out first, the job id is still returned so `get_job` can keep polling it) |
+| `deploy` | `POST /v1/devices/{id}/deployments` (blocks up to 11 minutes polling the job to completion, then returns its final snapshot; if it times out first, the job id is still returned so `get_job` can keep polling it). Accepts an optional `argv` array setting the command-line the resulting Steam shortcut launches with; without it the shortcut has nothing to launch and the job fails once rsync finishes. **`game_id` must not contain `-`** — see caveat below. |
 | `sync_logs` | `POST /v1/devices/{id}/logs/sync` (same polling behavior, up to 3 minutes) |
 | `cancel_job` | `DELETE /v1/jobs/{id}` |
 | `launch_game` / `stop_game` | `POST /v1/devices/{id}/games/{gameId}/launch` / `.../stop` — currently always return `"unsupported"`; see [`docs/DEVICE_LAUNCH.md`](DEVICE_LAUNCH.md). |
@@ -98,8 +98,29 @@ built `lazydeck` binary as a subprocess, which auto-started `lazydeck
 serve --fixture`, listed all 13 tools, and successfully called `health`,
 `list_devices`, `discover_devices`, `get_capabilities`, and `deploy`
 (polling a fixture job through to `succeeded`) over real stdio and
-loopback HTTP. **This validation used the in-memory fixture backend
-rather than real Steam hardware**, consistent with the rest of this
-project's current validation status (see the Godot/Unity integrations'
-own READMEs) — pairing and deployment against a real Steam Deck/Steam
-Machine still require hardware testing.
+loopback HTTP.
+
+`lazydeck mcp` (without `--fixture`) has also been validated against a
+real Steam Machine devkit on the LAN, both read-only and mutating: real
+mDNS `discover_devices`, `device_status`, and `list_games` returned live
+SteamOS telemetry and title data; `deploy` (with `argv` set) rsync'd files
+and successfully registered a launchable Steam shortcut end-to-end;
+`sync_logs` pulled real logs/minidumps down; and `launch_game`/`stop_game`
+correctly returned their by-design `"unsupported"` error against a real
+devkit. Pairing (`pair_device`) was exercised earlier against the same
+device (a re-pair against an already-paired machine correctly reports the
+underlying `unreachable`/403 from the pairing script, since pairing isn't
+idempotent).
+
+**Caveat found during this validation: `deploy` rejects `-` in `game_id`.**
+On real hardware, a `-` in `game_id` makes the *remote* Steam client
+reject shortcut registration with a generic `missing/invalid arguments`
+script error — reproduced consistently regardless of `argv`, only going
+away once the `-` was removed from the id. This happens in Valve's own
+on-device devkit-utils protocol handler (outside this repository), not in
+lazydeck's own logic, so it can't be fixed directly here. Instead, `deploy`
+now catches it locally before ever reaching SSH or the device: a
+dash-containing `game_id` returns an immediate `invalid-input` error
+instead of a confusing round-trip failure. `list_games`/`delete`/
+`sync_logs` don't go through shortcut creation and still allow `-` in
+`game_id`; only `deploy` enforces `[A-Za-z0-9._]`.

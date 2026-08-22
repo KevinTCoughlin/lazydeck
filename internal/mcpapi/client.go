@@ -229,7 +229,12 @@ func (c *Client) ListGames(ctx context.Context, deviceID string) ([]any, error) 
 // Deploy calls POST /v1/devices/{id}/deployments, returning the accepted
 // job snapshot (status "queued" or "running"). Use WaitForJob to block
 // until it reaches a terminal state.
-func (c *Client) Deploy(ctx context.Context, deviceID, gameID, directory string, deleteExtraneous bool) (Job, error) {
+// Deploy calls POST /v1/devices/{id}/deployments. argv, if non-empty, sets
+// the command-line the resulting Steam shortcut launches with; without it,
+// the server-side shortcut-creation step has nothing to launch and the job
+// fails once rsync finishes (see internal/client.Client.Deploy's doc for
+// the underlying script requirement).
+func (c *Client) Deploy(ctx context.Context, deviceID, gameID, directory string, deleteExtraneous bool, argv []string) (Job, error) {
 	var out struct {
 		Job Job `json:"job"`
 	}
@@ -237,6 +242,9 @@ func (c *Client) Deploy(ctx context.Context, deviceID, gameID, directory string,
 		"game_id":           gameID,
 		"directory":         directory,
 		"delete_extraneous": deleteExtraneous,
+	}
+	if len(argv) > 0 {
+		body["argv"] = argv
 	}
 	path := fmt.Sprintf("/v1/devices/%s/deployments", url.PathEscape(deviceID))
 	if err := c.do(ctx, http.MethodPost, path, body, &out); err != nil {

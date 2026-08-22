@@ -135,6 +135,9 @@ func TestDeployAndGetJob(t *testing.T) {
 			if body["game_id"] != "mygame" {
 				t.Errorf("game_id = %v, want mygame", body["game_id"])
 			}
+			if argv, _ := body["argv"].([]any); len(argv) != 1 || argv[0] != "./run.sh" {
+				t.Errorf("argv = %v, want [./run.sh]", body["argv"])
+			}
 			writeJSON(t, w, http.StatusAccepted, map[string]any{
 				"job": Job{ID: "job-1", DeviceID: "deck-1", Operation: "deploy", Status: "queued"},
 			})
@@ -147,7 +150,7 @@ func TestDeployAndGetJob(t *testing.T) {
 		}
 	})
 
-	job, err := cli.Deploy(t.Context(), "deck-1", "mygame", "/abs/path", false)
+	job, err := cli.Deploy(t.Context(), "deck-1", "mygame", "/abs/path", false, []string{"./run.sh"})
 	if err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}

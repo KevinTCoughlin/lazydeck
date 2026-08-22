@@ -89,7 +89,7 @@ func (c *Client) ListGames(_ context.Context, _, _ string) ([]any, error) {
 // Deploy waits DeployDelay (or returns early if ctx is cancelled first, so
 // job cancellation is exercised the same way a real rsync/ssh cancellation
 // would be) and then returns DeployErr.
-func (c *Client) Deploy(ctx context.Context, _, _, _, _ string, _ bool) error {
+func (c *Client) Deploy(ctx context.Context, _, _, _, _ string, _ bool, _ []string) error {
 	return sleep(ctx, c.DeployDelay, c.DeployErr)
 }
 
