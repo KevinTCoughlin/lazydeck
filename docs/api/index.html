@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lazydeck — local service API reference</title>
+<meta name="description" content="Reference docs for lazydeck serve's versioned, loopback-only HTTP+SSE API, generated from api/openapi.yaml.">
+<link rel="icon" href="data:,">
+<style>
+  body { margin: 0; background: #0d1117; }
+  /* Redoc renders its own theme; this just avoids a flash of unstyled
+     white background while the standalone bundle (~1MB) loads. */
+  #redoc-container { min-height: 100vh; }
+  .fallback-note {
+    display: none;
+    max-width: 640px;
+    margin: 64px auto;
+    padding: 0 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: #e6edf3;
+  }
+  .fallback-note a { color: #79c0ff; }
+</style>
+</head>
+<body>
+
+<div id="redoc-container"></div>
+<div class="fallback-note" id="fallback">
+  <p>The interactive API viewer didn't load (probably a blocked CDN script).
+  You can still read the spec directly:
+  <a href="https://github.com/KevinTCoughlin/lazydeck/blob/main/api/openapi.yaml">api/openapi.yaml</a>
+  on GitHub.</p>
+</div>
+
+<!--
+  Rendered directly from api/openapi.yaml on the main branch (via GitHub's
+  raw content CDN) rather than a copy checked into docs/, so this page can
+  never drift out of sync with internal/server's actual implementation --
+  api/openapi.yaml remains the single source of truth; see its own header
+  comment for details.
+
+  redoc.standalone.js is pinned to a specific release + verified with an
+  SRI hash, matching this repo's convention of pinning and verifying every
+  other external dependency (see scripts/fetch-godot.sh, the Containerfile
+  digests, and the workflow action SHAs).
+-->
+<script
+  src="https://cdn.jsdelivr.net/npm/redoc@2.5.3/bundles/redoc.standalone.js"
+  integrity="sha384-xiEssMQFSpSfLbzRZCGfxxIM5QDb2DTrU6vyoZdp2sV1L6pmOMy6MpTtUoLbpC96"
+  crossorigin="anonymous"
+  onerror="document.getElementById('fallback').style.display='block'"
+></script>
+<script>
+  if (window.Redoc) {
+    Redoc.init(
+      "https://raw.githubusercontent.com/KevinTCoughlin/lazydeck/main/api/openapi.yaml",
+      {
+        theme: {
+          colors: { primary: { main: "#79c0ff" } },
+          typography: { fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" },
+        },
+      },
+      document.getElementById("redoc-container")
+    );
+  }
+</script>
+
+</body>
+</html>
