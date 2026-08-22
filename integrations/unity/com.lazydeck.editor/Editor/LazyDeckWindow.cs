@@ -368,10 +368,11 @@ namespace LazyDeck.Editor
             }
             finally
             {
+                // _currentJobId is intentionally not cleared here — TrackJobAsync
+                // owns it and keeps it set when a job outlives its poll loop.
                 if (this != null)
                 {
                     _busy = false;
-                    _currentJobId = "";
                     Repaint();
                 }
             }
@@ -416,10 +417,10 @@ namespace LazyDeck.Editor
             }
             finally
             {
+                // See BuildAndDeployAsync: TrackJobAsync owns _currentJobId.
                 if (this != null)
                 {
                     _busy = false;
-                    _currentJobId = "";
                     Repaint();
                 }
             }
@@ -448,10 +449,26 @@ namespace LazyDeck.Editor
             Repaint();
 
             JobEntry final = await PollJobAsync(client, queued.id);
-            if (this == null || _client != client || final == null)
+            if (this == null || _client != client)
             {
                 return;
             }
+            if (final == null)
+            {
+                // Polling stopped without reaching a terminal status, so the
+                // backend job is probably still running. Deliberately leave
+                // _currentJobId set: it is the only handle the Cancel button
+                // has, and dropping it here would strand a running job with
+                // no way to stop it from the editor.
+                LogLine(
+                    $"Stopped tracking {label.ToLowerInvariant()} job {queued.id}; "
+                        + "it may still be running. Cancel is still available."
+                );
+                return;
+            }
+
+            // Terminal status observed — nothing left to cancel.
+            _currentJobId = "";
 
             if (final.status == "succeeded")
             {
@@ -521,9 +538,12 @@ namespace LazyDeck.Editor
             {
                 return;
             }
-            // Deliberately does not clear _busy or _currentJobId: the in-flight
-            // PollJobAsync owns both and will observe the cancelled status on
-            // its next tick, exactly as the Godot dock does.
+            // While an operation is still in flight, PollJobAsync owns _busy and
+            // _currentJobId and will observe the cancelled status on its next
+            // tick, exactly as the Godot dock does — so nothing is cleared here.
+            // The exception is handled below: a job whose poll loop already died
+            // has no such observer.
+            bool trackedByPollLoop = _busy;
             LazyDeckClient client = _client;
             string jobId = _currentJobId;
             LogLine($"Cancelling job {jobId}...");
@@ -535,6 +555,15 @@ namespace LazyDeck.Editor
             if (!result.Ok)
             {
                 LogLine($"Failed to cancel job {jobId}: {result.ErrorMessage}");
+            }
+            else if (!trackedByPollLoop && _currentJobId == jobId)
+            {
+                // No poll loop is watching this job, so nothing else will ever
+                // see it reach "cancelled" and retire the id. Retire it here,
+                // or the Cancel button stays lit forever pointing at a job
+                // that's already been asked to stop.
+                LogLine($"Job {jobId} cancellation requested; no longer tracking it.");
+                _currentJobId = "";
             }
             Repaint();
         }
