@@ -63,8 +63,10 @@ static func export_preset(
 		return {
 			"ok": false,
 			"error":
-			"Godot export exited with code %d%s"
-			% [exit_code, "" if details == "" else ": %s" % details]
+			(
+				"Godot export exited with code %d%s"
+				% [exit_code, "" if details == "" else ": %s" % details]
+			)
 		}
 
 	return {"ok": true, "error": ""}
