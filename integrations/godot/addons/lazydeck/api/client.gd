@@ -126,3 +126,42 @@ func pair_device(device_id: String) -> Dictionary:
 
 func get_device_status(device_id: String) -> Dictionary:
 	return await request(HTTPClient.METHOD_GET, "/v1/devices/%s/status" % device_id.uri_encode())
+
+
+## Submits a deploy job for device_id. directory must be an absolute path
+## on this workstation (the API rejects a relative one — see
+## api/openapi.yaml's deployments endpoint). Returns immediately with the
+## queued job's snapshot ({"ok": true, "data": {"job": {...}}}); poll
+## get_job() to observe progress.
+func submit_deployment(
+	device_id: String, game_id: String, directory: String, delete_extraneous: bool = false
+) -> Dictionary:
+	return await request(
+		HTTPClient.METHOD_POST,
+		"/v1/devices/%s/deployments" % device_id.uri_encode(),
+		{
+			"game_id": game_id,
+			"directory": directory,
+			"delete_extraneous": delete_extraneous,
+		}
+	)
+
+
+## Submits a log-sync job for device_id. game_id is accepted for forward
+## compatibility but currently unused by the backend (it always fetches
+## the device's complete Steam logs/minidumps) — see api/openapi.yaml.
+func submit_logs_sync(device_id: String, directory: String, game_id: String = "") -> Dictionary:
+	var body := {"directory": directory}
+	if game_id != "":
+		body["game_id"] = game_id
+	return await request(
+		HTTPClient.METHOD_POST, "/v1/devices/%s/logs/sync" % device_id.uri_encode(), body
+	)
+
+
+func get_job(job_id: String) -> Dictionary:
+	return await request(HTTPClient.METHOD_GET, "/v1/jobs/%s" % job_id.uri_encode())
+
+
+func cancel_job(job_id: String) -> Dictionary:
+	return await request(HTTPClient.METHOD_DELETE, "/v1/jobs/%s" % job_id.uri_encode())
