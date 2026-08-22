@@ -1,5 +1,12 @@
 # lazydeck
 
+[![CI](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/ci.yml/badge.svg)](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/codeql.yml/badge.svg)](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/codeql.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/kevintcoughlin/lazydeck.svg)](https://pkg.go.dev/github.com/kevintcoughlin/lazydeck)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kevintcoughlin/lazydeck)](https://goreportcard.com/report/github.com/kevintcoughlin/lazydeck)
+[![Latest release](https://img.shields.io/github/v/release/KevinTCoughlin/lazydeck)](https://github.com/KevinTCoughlin/lazydeck/releases)
+[![License: MIT](https://img.shields.io/github/license/KevinTCoughlin/lazydeck)](LICENSE)
+
 A lazydocker-style terminal UI for managing a fleet of Steam devkits (Steam
 Machine, Steam Deck, ...) — pairing, deploying builds, checking status, and
 tailing logs from one keyboard-driven panel, instead of Valve's single-target
@@ -289,8 +296,9 @@ pair only on a trusted LAN. See [SECURITY.md](SECURITY.md).
 `lazydeck serve` (see [issue #13](https://github.com/kevintcoughlin/lazydeck/issues/13))
 exposes the same devkit operations above through a versioned, loopback-only
 HTTP+SSE API, so engine editors can drive them without shelling out to
-`lazydeck` or reimplementing the SteamOS Devkit protocol. See
-[`api/openapi.yaml`](api/openapi.yaml) for the contract.
+`lazydeck` or reimplementing the SteamOS Devkit protocol. Browse the
+[rendered API docs](https://kevintcoughlin.com/lazydeck/api/) or read
+[`api/openapi.yaml`](api/openapi.yaml) directly for the contract.
 
 Two editor integrations are built on that API so far:
 
