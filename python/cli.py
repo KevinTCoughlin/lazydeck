@@ -150,6 +150,20 @@ def cmd_list_games(args: argparse.Namespace) -> None:
 
 def cmd_deploy(args: argparse.Namespace) -> None:
     name = validate_game_name(args.name)
+    if "-" in name:
+        # Real-hardware testing found that a '-' anywhere in the name (not
+        # just a leading one, which validate_game_name already rejects)
+        # makes the remote Steam client's steam-client-create-shortcut
+        # protocol reject registration with a generic "missing/invalid
+        # arguments" error. That script is part of Valve's own on-device
+        # devkit-utils (not vendored here), so it can't be patched; list/
+        # delete/sync-logs don't hit that step and keep allowing '-'. See
+        # docs/DEVICE_LAUNCH.md's "Known caveat" section.
+        raise ValueError(
+            "game name must not contain '-' for deploy: the remote Steam "
+            "client's shortcut-registration protocol rejects it with a "
+            "generic 'missing/invalid arguments' error (see docs/DEVICE_LAUNCH.md)"
+        )
     directory = Path(args.directory).expanduser()
     if not directory.is_dir():
         raise ValueError(f"--directory {args.directory!r} does not exist or is not a directory")

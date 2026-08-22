@@ -459,12 +459,28 @@ func TestDeployRejectsInvalidGameID(t *testing.T) {
 		"has spaces",
 		"has/slash",
 		string(make([]byte, 300)), // over any sane length limit
+		"smoke-test",              // embedded dash: breaks real-hardware create-shortcut (see docs/DEVICE_LAUNCH.md)
+		"lazydeck-mcp-smoketest",
 	} {
 		resp := doRequest(t, ts, "POST", "/v1/devices/deck-1/deployments",
 			map[string]string{"game_id": gameID, "directory": "/tmp/build"}, testToken)
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("game_id %q: status = %d, want 400", gameID, resp.StatusCode)
 		}
+	}
+}
+
+// TestSyncLogsAllowsEmbeddedDashInGameID confirms the stricter deploy-only
+// dash rejection (validateDeployGameID) doesn't leak into sync-logs, which
+// never reaches the remote create-shortcut step that dashes break.
+func TestSyncLogsAllowsEmbeddedDashInGameID(t *testing.T) {
+	_, ts := newTestServer(&fakeClient{}, config.Device{Name: "deck-1", Machine: "steamdeck.local"})
+	defer ts.Close()
+
+	resp := doRequest(t, ts, "POST", "/v1/devices/deck-1/logs/sync",
+		map[string]string{"game_id": "lazydeck-mcp-smoketest", "directory": "/tmp/logs"}, testToken)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 for a dash-containing game_id on sync-logs", resp.StatusCode)
 	}
 }
 

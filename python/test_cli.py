@@ -183,6 +183,31 @@ class GameNameValidationTests(unittest.TestCase):
                     cli.cmd_deploy(args)
             deploy.assert_not_called()
 
+    def test_deploy_rejects_embedded_dash_before_ssh(self):
+        """Real-hardware testing found that a '-' anywhere in the name (not
+        just a leading one) makes the remote Steam client's
+        create-shortcut protocol fail with a generic "missing/invalid
+        arguments" error. deploy rejects it locally with a clear message
+        instead of round-tripping to the device to fail opaquely. This is
+        deploy-specific: list/delete/sync-logs don't go through
+        create-shortcut, so they keep allowing '-' (see
+        test_delete_rejects_invalid_name_before_ssh's "-rf", which is
+        rejected for the unrelated leading-dash reason, not this one)."""
+        with tempfile.TemporaryDirectory() as directory:
+            for name in ["smoke-test", "lazydeck-mcp-smoketest", "my-game"]:
+                args = argparse.Namespace(
+                    machine="steamdeck.local",
+                    login="deck",
+                    name=name,
+                    directory=directory,
+                    delete_extraneous=False,
+                    argv=[],
+                )
+                with mock.patch.object(cli.dk, "new_or_ensure_game") as deploy:
+                    with self.assertRaises(ValueError):
+                        cli.cmd_deploy(args)
+                deploy.assert_not_called()
+
     def test_delete_rejects_invalid_name_before_ssh(self):
         args = argparse.Namespace(
             machine="steamdeck.local",

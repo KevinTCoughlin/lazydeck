@@ -204,16 +204,17 @@ paths:
               properties:
                 game_id:
                   type: string
-                  pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+                  pattern: '^[A-Za-z0-9][A-Za-z0-9._]{0,127}$'
                   description: >-
                     Must start with a letter or digit and contain only
-                    letters, digits, '.', '_', or '-' (max 128 characters).
-                    In practice, avoid '-' for this endpoint: on real
-                    hardware it makes the remote Steam client reject
-                    shortcut registration with a generic
+                    letters, digits, '.', or '_' (max 128 characters).
+                    Unlike other endpoints' game_id, '-' is rejected here
+                    (400 invalid-input) even though it's otherwise a valid
+                    character: on real hardware it makes the remote Steam
+                    client reject shortcut registration with a generic
                     "missing/invalid arguments" error (see
-                    docs/DEVICE_LAUNCH.md); '.', '_', and alphanumerics
-                    are unaffected.
+                    docs/DEVICE_LAUNCH.md). list-games/delete/sync-logs
+                    don't go through shortcut creation and still allow '-'.
                 directory:
                   type: string
                   description: >-
