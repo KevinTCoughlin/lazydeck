@@ -176,6 +176,10 @@
     <p>A Godot 4 editor plugin (dock UI, export, deploy, log sync) ships today; a Unity editor package is in progress. Both talk to <code>lazydeck serve</code> directly.</p>
   </div>
   <div class="feature">
+    <h3>MCP server for LLM agents</h3>
+    <p><code>lazydeck mcp</code> exposes the same API as MCP tools over stdio, for Claude Desktop, VS Code Copilot, and other MCP-capable agents. Read-only by default; mutating tools are opt-in.</p>
+  </div>
+  <div class="feature">
     <h3>Trust-on-first-use SSH</h3>
     <p>Records devkit host keys the first time you pair, in a dedicated known_hosts file, and warns (or optionally rejects) on a changed key later.</p>
   </div>
@@ -214,6 +218,7 @@
   <div class="badge-row">
     <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/tree/main/integrations/godot">Godot 4 plugin</a>
     <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/tree/main/integrations/unity">Unity package (in progress)</a>
+    <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/blob/main/docs/mcp.md">MCP server (lazydeck mcp)</a>
   </div>
 </section>
 

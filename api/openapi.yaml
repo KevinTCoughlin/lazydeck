@@ -5,7 +5,8 @@ info:
   description: |
     Versioned, localhost-only HTTP+SSE API over LazyDeck's existing SteamOS
     Devkit operations (see issue #13). Engine integrations (the Godot
-    plugin in issue #14, and later a Unity package) consume this contract
+    plugin in issue #14, a Unity package, and the `lazydeck mcp` Model
+    Context Protocol server for LLM agents) consume this contract
     instead of importing Go packages, invoking the Python bridge directly,
     or reimplementing Valve's SteamOS Devkit protocol.
 
