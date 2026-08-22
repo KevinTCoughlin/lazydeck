@@ -377,7 +377,11 @@ func _validate_deploy_inputs() -> Dictionary:
 	if _preset_option.item_count == 0 or _preset_option.selected < 0:
 		_log_line("Select an export preset first.")
 		return {}
-	var output_dir := _output_dir_field.text.strip_edges()
+	# Globalized so a res://... or user://... path (easy to type by habit in
+	# a Godot editor field) resolves to the real workstation path the
+	# backend and LazyDeckExportRunner both require, rather than being
+	# rejected as "not absolute".
+	var output_dir := ProjectSettings.globalize_path(_output_dir_field.text.strip_edges())
 	var executable_name := _executable_name_field.text.strip_edges()
 	var game_id := _game_id_field.text.strip_edges()
 	if output_dir == "" or executable_name == "" or game_id == "":
@@ -457,7 +461,7 @@ func _validate_logs_sync_inputs() -> Dictionary:
 	if device.is_empty():
 		_log_line("Select a configured device first.")
 		return {}
-	var logs_dir := _logs_dir_field.text.strip_edges()
+	var logs_dir := ProjectSettings.globalize_path(_logs_dir_field.text.strip_edges())
 	if logs_dir == "":
 		_log_line("Local logs directory is required.")
 		return {}
