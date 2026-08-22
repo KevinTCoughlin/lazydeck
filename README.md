@@ -292,11 +292,18 @@ HTTP+SSE API, so engine editors can drive them without shelling out to
 `lazydeck` or reimplementing the SteamOS Devkit protocol. See
 [`api/openapi.yaml`](api/openapi.yaml) for the contract.
 
-A Godot 4 editor plugin built on that API lives in
-[`integrations/godot`](integrations/godot) — run `lazydeck serve`, then
-enable the plugin to discover, pair, and inspect devkits, build and
-deploy the current project, and sync logs, all from a dock in the editor.
-See that directory's README for current scope and a runnable example
+Two editor integrations are built on that API so far:
+
+- A Godot 4 editor plugin: [`integrations/godot`](integrations/godot) —
+  run `lazydeck serve`, then enable the plugin to discover, pair, and
+  inspect devkits, build and deploy the current project, and sync logs,
+  all from a dock in the editor.
+- A Unity Editor package (Unity 2023.1 or newer, including Unity 6):
+  [`integrations/unity`](integrations/unity), currently covering connect +
+  devices only (discover, pair, inspect — build/deploy from the editor is
+  follow-up work).
+
+Each directory's README covers current scope and links a runnable example
 project.
 
 ## Troubleshooting

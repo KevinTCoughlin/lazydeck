@@ -1,0 +1,13 @@
+# Standard Unity-generated directories; regenerated locally on first
+# open and shouldn't be committed.
+/Library/
+/Temp/
+/Obj/
+/Build/
+/Builds/
+/Logs/
+/UserSettings/
+/.vs/
+*.csproj
+*.sln
+*.user

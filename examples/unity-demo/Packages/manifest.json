@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "com.lazydeck.editor": "file:../../../integrations/unity/com.lazydeck.editor"
+  }
+}

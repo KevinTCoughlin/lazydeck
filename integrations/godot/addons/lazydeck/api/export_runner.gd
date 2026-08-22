@@ -2,41 +2,24 @@
 class_name LazyDeckExportRunner
 extends RefCounted
 
-## Wraps Godot's own export machinery (the EditorExport singleton and
-## EditorExportPlatform.export_project()) — the same API Godot's Export
-## dialog and the `--export-release`/`--export-debug` CLI flags use
-## internally — per issue #14's "Run the Godot export through supported
-## editor APIs where possible."
-##
-## ⚠️ This class was written without a Godot editor available to verify
-## it against (see integrations/godot/README.md). export_project()'s
-## exact path semantics are the specific thing most worth checking first:
-## Godot's Export dialog asks for a *file* path (e.g.
-## "/tmp/export/mygame.x86_64"), and the platform writes that executable
-## plus its accompanying .pck (and any other per-platform files) into the
-## same directory — which is why export_preset() below takes a directory
-## and an executable name rather than a single combined path, and why the
-## resulting directory (not just the executable) is what gets deployed.
-## If the platform doesn't accept the file name as given (e.g. appends or
-## corrects an extension itself), the executable name shown in the dock
-## after a successful export may not exactly match what you typed; adjust
-## to match what's actually on disk.
-##
-## No subprocess is spawned, so this exports the project's current
-## on-disk state — save unsaved scenes/resources first.
+## Runs Godot's supported command-line export flow with the current editor
+## executable. Godot does not expose its EditorExport singleton to GDScript,
+## so an editor plugin cannot invoke EditorExportPlatform.export_project()
+## in-process.
 
 
 ## Returns the display names of every export preset configured for this
 ## project (Project > Export... in the editor), in configuration order.
 static func list_preset_names() -> PackedStringArray:
 	var names := PackedStringArray()
-	var export_singleton := EditorExport.get_singleton()
-	if export_singleton == null:
+	var config := ConfigFile.new()
+	if config.load("res://export_presets.cfg") != OK:
 		return names
-	for i in export_singleton.get_export_preset_count():
-		var preset := export_singleton.get_export_preset(i)
-		if preset:
-			names.append(preset.get_name())
+	for section in config.get_sections():
+		if section.begins_with("preset.") and not section.contains(".options"):
+			var preset_name: String = config.get_value(section, "name", "")
+			if preset_name != "":
+				names.append(preset_name)
 	return names
 
 
@@ -48,25 +31,8 @@ static func list_preset_names() -> PackedStringArray:
 static func export_preset(
 	preset_name: String, output_directory: String, executable_name: String, debug: bool
 ) -> Dictionary:
-	var export_singleton := EditorExport.get_singleton()
-	if export_singleton == null:
-		return {
-			"ok": false, "error": "EditorExport singleton is unavailable in this editor session"
-		}
-
-	var preset: EditorExportPreset = null
-	for i in export_singleton.get_export_preset_count():
-		var candidate := export_singleton.get_export_preset(i)
-		if candidate and candidate.get_name() == preset_name:
-			preset = candidate
-			break
-
-	if preset == null:
+	if not list_preset_names().has(preset_name):
 		return {"ok": false, "error": "no export preset named %s" % preset_name}
-
-	var platform := preset.get_platform()
-	if platform == null:
-		return {"ok": false, "error": "preset %s has no export platform" % preset_name}
 
 	if not output_directory.is_absolute_path():
 		return {"ok": false, "error": "output_directory must be an absolute path"}
@@ -80,8 +46,27 @@ static func export_preset(
 			}
 
 	var output_path := output_directory.path_join(executable_name)
-	var err: int = platform.export_project(preset, debug, output_path)
-	if err != OK:
-		return {"ok": false, "error": "export failed: %s" % error_string(err)}
+	var output: Array[String] = []
+	var args := PackedStringArray(
+		[
+			"--headless",
+			"--path",
+			ProjectSettings.globalize_path("res://"),
+			"--export-debug" if debug else "--export-release",
+			preset_name,
+			output_path,
+		]
+	)
+	var exit_code := OS.execute(OS.get_executable_path(), args, output, true)
+	if exit_code != 0:
+		var details := "\n".join(output).strip_edges()
+		return {
+			"ok": false,
+			"error":
+			(
+				"Godot export exited with code %d%s"
+				% [exit_code, "" if details == "" else ": %s" % details]
+			)
+		}
 
 	return {"ok": true, "error": ""}
