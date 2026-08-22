@@ -5,10 +5,8 @@ extends EditorPlugin
 ## pairing, and inspecting Steam Deck / Steam Machine devkits via
 ## lazydeck's local service API (`lazydeck serve`, issue #13).
 ##
-## Scope of this first slice: connect to an already-running `lazydeck
-## serve` and the read/pair-only Devices dock. It does not export, deploy,
-## launch/stop, or sync logs yet, and it does not spawn `lazydeck serve`
-## itself — see integrations/godot/README.md for what's deferred and why.
+## The dock starts `lazydeck serve` when no connection file exists (unless
+## opted out), then connects through its authenticated connection file.
 
 const DevicesDockScript := preload("res://addons/lazydeck/ui/devices_dock.gd")
 

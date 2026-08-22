@@ -10,8 +10,8 @@ without leaving the Unity Editor. The Unity counterpart of the
 
 The window (**Window → LazyDeck**) covers:
 
-- Connecting to an already-running `lazydeck serve` by reading its
-  connection file.
+- Connecting through `lazydeck serve`'s connection file, starting the
+  service automatically when no connection file exists.
 - Listing the devices configured in `devices.toml`.
 - Browsing for devkits announcing themselves on the LAN (mDNS discovery).
 - Pairing this workstation's SSH key with a device that's already in
@@ -22,12 +22,11 @@ The window (**Window → LazyDeck**) covers:
 - Syncing the selected device's logs to a local directory.
 - Cancelling an in-flight deploy or log-sync job.
 
-**Not included yet** (tracked as follow-up work on issue #17):
+**Deliberate limitations:**
 
-- Launching/stopping a deployed title (the local service API itself
-  doesn't support this yet either — see `/v1/capabilities`).
-- The package spawning `lazydeck serve` itself. For now, run `lazydeck
-  serve` yourself in a terminal before opening the window.
+- Launching/stopping a deployed title: this is intentionally unsupported by
+  the SteamOS devkit protocol; start or stop the title in the device's Steam
+  UI. See [`docs/DEVICE_LAUNCH.md`](../../../docs/DEVICE_LAUNCH.md).
 - Pairing a device discovered over mDNS that isn't already in
   `devices.toml` — `lazydeck serve` reads `devices.toml` once at startup,
   so add the device to the config and restart `lazydeck serve` first,
@@ -66,7 +65,8 @@ Practical consequences:
 
 - Unity **2023.1** or newer (including Unity 6) — the package uses the
   `Awaitable` API, which isn't available on older LTS releases.
-- `lazydeck serve` running (see the root README) before you open the window.
+- A `lazydeck` executable on `PATH`, unless `LAZYDECK_BIN` or the
+  **LazyDeck service settings** executable field names it explicitly.
 
 ## Installing
 
@@ -114,3 +114,10 @@ upload, and discovery still require real Steam hardware testing.
 when set, otherwise `<OS cache dir>/lazydeck/serve.json`. That file names
 the loopback port and bearer token for the currently running `lazydeck
 serve` process; the window's "Connect" button re-reads it on demand.
+
+When that connection file does not exist, the window starts `lazydeck serve`,
+then waits up to five seconds for it. The process remains running after Unity
+closes so another editor can reuse it. Expand **LazyDeck service settings** to
+disable auto-start or configure a binary path; `LAZYDECK_AUTOSTART=0` and
+`LAZYDECK_BIN` override those settings. Startup stderr is forwarded into the
+LazyDeck window log.

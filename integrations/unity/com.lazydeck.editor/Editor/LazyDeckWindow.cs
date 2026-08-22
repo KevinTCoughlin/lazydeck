@@ -85,6 +85,7 @@ namespace LazyDeck.Editor
         private string _executableName = "";
         private string _logsDirectory = "";
         private string _currentJobId = "";
+        private bool _showConnectionSettings;
 
         [MenuItem("Window/LazyDeck")]
         public static void ShowWindow()
@@ -142,6 +143,7 @@ namespace LazyDeck.Editor
 
         private void OnGUI()
         {
+            ServerLauncher.DrainMessages(LogLine);
             EditorGUILayout.LabelField(_statusText, EditorStyles.boldLabel);
 
             using (new EditorGUI.DisabledScope(_busy))
@@ -150,6 +152,37 @@ namespace LazyDeck.Editor
                 {
                     _ = ConnectAsync();
                 }
+            }
+
+            _showConnectionSettings = EditorGUILayout.Foldout(
+                _showConnectionSettings,
+                "LazyDeck service settings"
+            );
+            if (_showConnectionSettings)
+            {
+                bool autoStart = EditorGUILayout.Toggle(
+                    "Auto-start service",
+                    ServerLauncher.AutoStartEnabled
+                );
+                if (autoStart != ServerLauncher.AutoStartEnabled)
+                {
+                    ServerLauncher.AutoStartEnabled = autoStart;
+                }
+                string executable = EditorGUILayout.TextField(
+                    "Executable",
+                    ServerLauncher.Executable
+                );
+                if (executable != ServerLauncher.Executable)
+                {
+                    ServerLauncher.Executable = executable;
+                }
+                EditorGUILayout.HelpBox(
+                    "When no connection file exists, LazyDeck starts `lazydeck serve` and "
+                        + "waits for it. The process remains running after this window closes. "
+                        + "LAZYDECK_AUTOSTART=0 disables auto-start; LAZYDECK_BIN overrides "
+                        + "the configured executable.",
+                    MessageType.Info
+                );
             }
 
             EditorGUILayout.Space();
@@ -602,6 +635,18 @@ namespace LazyDeck.Editor
                 _currentJobId = "";
 
                 ConnectionLocator.Result located = ConnectionLocator.Load();
+                if (!located.Ok && ServerLauncher.StartIfNeeded(LogLine))
+                {
+                    for (int attempt = 0; attempt < 20 && !located.Ok; attempt++)
+                    {
+                        await EditorDelay.ForSecondsAsync(0.25);
+                        if (this == null)
+                        {
+                            return;
+                        }
+                        located = ConnectionLocator.Load();
+                    }
+                }
                 if (!located.Ok)
                 {
                     _statusText = "Not connected";

@@ -35,10 +35,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // capabilities tells a client what this server can do without it having to
 // probe individual endpoints and infer support from a 404/501. launch and
-// stop are hardcoded false: python/cli.py has no launch/stop command for
-// the server to call yet (see package doc comment), so advertising them as
-// unsupported here is honest rather than routing to code that would always
-// fail.
+// stop are intentionally hardcoded false: Valve's supported devkit protocol
+// registers deployed titles but has no remote launch/stop primitive. Players
+// start a title from the device's Steam UI. See docs/DEVICE_LAUNCH.md.
 type capabilitiesResponse struct {
 	APIVersion string          `json:"api_version"`
 	Operations map[string]bool `json:"operations"`
@@ -251,16 +250,14 @@ func (s *Server) handleLogsSync(w http.ResponseWriter, r *http.Request) {
 
 // handleLaunch and handleStop are capability-gated stubs: /v1/capabilities
 // reports launch/stop as unsupported (see handleCapabilities), and these
-// return the same "unsupported" error rather than a generic 404, so a
-// client that skipped the capability check still gets an unambiguous,
-// typed reason. They exist as routes now so the URL shape is stable once a
-// real backend lands, instead of #14 or a Unity client guessing it later.
+// return the same "unsupported" error rather than a generic 404. This is an
+// intentional supported-surface boundary, not an unimplemented client call.
 func (s *Server) handleLaunch(w http.ResponseWriter, r *http.Request) {
-	writeErrorStatus(w, http.StatusNotImplemented, "unsupported", "launch is not yet implemented by the LazyDeck backend; check /v1/capabilities")
+	writeErrorStatus(w, http.StatusNotImplemented, "unsupported", "remote launch is not supported by the SteamOS devkit protocol; start the title from the device's Steam UI")
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
-	writeErrorStatus(w, http.StatusNotImplemented, "unsupported", "stop is not yet implemented by the LazyDeck backend; check /v1/capabilities")
+	writeErrorStatus(w, http.StatusNotImplemented, "unsupported", "remote stop is not supported by the SteamOS devkit protocol; stop the title from the device's Steam UI")
 }
 
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {

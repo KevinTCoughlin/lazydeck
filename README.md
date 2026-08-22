@@ -164,6 +164,14 @@ does not require it. Archive, Homebrew, and Nix users can copy
 `packaging/systemd/user/lazydeck-serve.service` and replace its `ExecStart`
 path with their installed `lazydeck` binary.
 
+### Launching deployed titles
+
+LazyDeck deploys and registers games with Steam, but does not remotely launch
+or stop them. The supported SteamOS devkit protocol has no launch/stop
+primitive, so start and stop a deployed title from the device's Steam UI.
+`/v1/capabilities` intentionally reports both operations as unavailable; see
+[the launch policy](docs/DEVICE_LAUNCH.md) for the rationale.
+
 ### Custom keybindings/commands (config.yml)
 
 Optionally edit `~/.config/lazydeck/config.yml` (created for you on first

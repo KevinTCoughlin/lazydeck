@@ -9,8 +9,8 @@ without leaving the editor.
 
 The dock (bottom-right editor panel) covers:
 
-- Connecting to an already-running `lazydeck serve` by reading its
-  connection file.
+- Connecting through `lazydeck serve`'s connection file, starting the
+  service automatically when no connection file exists.
 - Listing the devices configured in `devices.toml`.
 - Browsing for devkits announcing themselves on the LAN (mDNS discovery).
 - Pairing this workstation's SSH key with a device that's already in
@@ -21,12 +21,11 @@ The dock (bottom-right editor panel) covers:
 - Syncing the selected device's logs to a local directory.
 - Cancelling an in-flight deploy or log-sync job.
 
-**Not included yet** (tracked as follow-up work on issue #14):
+**Deliberate limitations:**
 
-- Launching/stopping a deployed title (the local service API itself
-  doesn't support this yet either — see `/v1/capabilities`).
-- The plugin spawning `lazydeck serve` itself. For now, run `lazydeck
-  serve` yourself in a terminal before opening the dock.
+- Launching/stopping a deployed title: this is intentionally unsupported by
+  the SteamOS devkit protocol; start or stop the title in the device's Steam
+  UI. See [`docs/DEVICE_LAUNCH.md`](../../../docs/DEVICE_LAUNCH.md).
 - Pairing a device discovered over mDNS that isn't already in
   `devices.toml` — `lazydeck serve` reads `devices.toml` once at
   startup, so add the device to the config and restart `lazydeck
@@ -52,7 +51,8 @@ whole directory so accompanying `.pck` and platform files are included.
   feature-detect anything from a newer Godot release through
   `api/compat.gd`'s `LazyDeckCompat.engine_at_least(...)`, so it can pick
   up newer/beta platform features over time without raising this floor.
-- `lazydeck serve` running (see the root README) before you open the dock.
+- A `lazydeck` executable on `PATH`, unless `LAZYDECK_BIN` or the
+  `lazydeck/server/executable` Project Setting names it explicitly.
 
 ## Installing
 
@@ -79,3 +79,11 @@ the loopback port and bearer token for the currently running `lazydeck
 serve` process; the dock's "Connect" button re-reads it on demand, so
 restarting `lazydeck serve` and clicking Connect again picks up the new
 port/token without reloading the editor.
+
+When that connection file does not exist, the dock starts `lazydeck serve`,
+then waits up to five seconds for it. The process remains running after Godot
+closes so another editor can reuse it. Set `LAZYDECK_AUTOSTART=0` or the
+`lazydeck/server/autostart` Project Setting to `false` to manage the service
+yourself. Godot cannot capture a detached process's stderr; startup errors
+remain available through the normal `lazydeck serve` output or systemd user
+service logs.

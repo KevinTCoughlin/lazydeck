@@ -16,8 +16,9 @@ info:
     launch and stop are included below as routes (POST
     /v1/devices/{deviceId}/games/{gameId}/launch and .../stop), so their URL
     shape is stable, but both always return 501 with error kind
-    "unsupported" in this version, because python/cli.py has no launch/stop
-    primitive yet. Check GET /v1/capabilities before calling them.
+    "unsupported" by design: the supported SteamOS devkit protocol has no
+    remote launch/stop primitive. Start and stop titles in the device's Steam
+    UI. Check GET /v1/capabilities before calling them.
 servers:
   - url: http://127.0.0.1:{port}
     description: >-

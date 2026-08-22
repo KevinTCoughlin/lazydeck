@@ -236,6 +236,20 @@ func _connect() -> void:
 
 	var located := LazyDeckConnectionLocator.load_connection()
 	if not located.get("ok", false):
+		var launch := LazyDeckServerLauncher.start_if_needed()
+		if launch.get("started", false):
+			_log_line(
+				"Starting lazydeck serve (%s, pid %d)..."
+				% [LazyDeckServerLauncher.executable(), int(launch.get("pid", 0))]
+			)
+			for attempt in 20:
+				await get_tree().create_timer(0.25).timeout
+				located = LazyDeckConnectionLocator.load_connection()
+				if located.get("ok", false):
+					break
+		elif launch.has("error"):
+			_log_line(str(launch["error"]))
+	if not located.get("ok", false):
 		_status_label.text = "Not connected"
 		_log_line(
 			"Could not find a running lazydeck serve: %s" % located.get("error", "unknown error")
