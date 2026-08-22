@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Text;
 using LazyDeck.Editor.Api;
 using UnityEditor;
@@ -53,6 +54,21 @@ namespace LazyDeck.Editor
             public string api_version;
         }
 
+        [Serializable]
+        private sealed class JobEntry
+        {
+            public string id;
+            public string status;
+            public string last_message;
+            public ApiErrorPayload error;
+        }
+
+        [Serializable]
+        private sealed class JobResponse
+        {
+            public JobEntry job;
+        }
+
         private LazyDeckClient _client;
         private string _statusText = "Not connected";
         private DeviceEntry[] _devices = Array.Empty<DeviceEntry>();
@@ -61,6 +77,14 @@ namespace LazyDeck.Editor
         private readonly StringBuilder _log = new StringBuilder();
         private Vector2 _logScroll;
         private bool _busy;
+
+        private int _selectedTargetIndex;
+        private bool _developmentBuild = true;
+        private string _gameId = "";
+        private string _outputDirectory = "";
+        private string _executableName = "";
+        private string _logsDirectory = "";
+        private string _currentJobId = "";
 
         [MenuItem("Window/LazyDeck")]
         public static void ShowWindow()
@@ -71,7 +95,49 @@ namespace LazyDeck.Editor
 
         private void OnEnable()
         {
+            SeedBuildDefaults();
             _ = ConnectAsync();
+        }
+
+        /// <summary>
+        /// Fills the build/deploy fields with workable defaults so the common
+        /// case is "pick a device, type a game ID, click Build &amp; deploy"
+        /// rather than filling in four paths by hand. Only ever seeds empty
+        /// fields, so a value the user typed survives a window reopen.
+        /// </summary>
+        private void SeedBuildDefaults()
+        {
+            BuildTarget target = SelectedTarget();
+            if (string.IsNullOrEmpty(_outputDirectory))
+            {
+                // Beside Assets/, not inside it: build output under Assets/
+                // would be imported as project assets on the next refresh.
+                _outputDirectory = Path.Combine(
+                    Path.GetDirectoryName(Application.dataPath) ?? "",
+                    "Build"
+                );
+            }
+            if (string.IsNullOrEmpty(_executableName))
+            {
+                _executableName = BuildRunner.DefaultExecutableName(target);
+            }
+            if (string.IsNullOrEmpty(_logsDirectory))
+            {
+                _logsDirectory = Path.Combine(
+                    Path.GetDirectoryName(Application.dataPath) ?? "",
+                    "LazyDeckLogs"
+                );
+            }
+        }
+
+        private BuildTarget SelectedTarget()
+        {
+            BuildTarget[] targets = BuildRunner.SupportedTargets;
+            if (_selectedTargetIndex < 0 || _selectedTargetIndex >= targets.Length)
+            {
+                return targets[0];
+            }
+            return targets[_selectedTargetIndex];
         }
 
         private void OnGUI()
@@ -107,8 +173,9 @@ namespace LazyDeck.Editor
                 _selectedDeviceIndex = EditorGUILayout.Popup("Device", _selectedDeviceIndex, labels);
             }
 
-            bool canPair =
-                !_busy && _client != null && _selectedDeviceIndex >= 0 && _selectedDeviceIndex < _devices.Length;
+            bool hasDeviceSelected =
+                _selectedDeviceIndex >= 0 && _selectedDeviceIndex < _devices.Length;
+            bool canPair = !_busy && _client != null && hasDeviceSelected;
             using (new EditorGUI.DisabledScope(!canPair))
             {
                 if (GUILayout.Button("Pair selected device"))
@@ -139,11 +206,353 @@ namespace LazyDeck.Editor
                 EditorGUILayout.LabelField($"{device.name} @ {device.address}:{device.port}");
             }
 
+            DrawBuildAndDeploy(hasDeviceSelected);
+            DrawLogSync(hasDeviceSelected);
+
+            EditorGUILayout.Space();
+            using (new EditorGUI.DisabledScope(_client == null || string.IsNullOrEmpty(_currentJobId)))
+            {
+                if (GUILayout.Button("Cancel current job"))
+                {
+                    _ = CancelCurrentJobAsync();
+                }
+            }
+
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Log", EditorStyles.boldLabel);
             _logScroll = EditorGUILayout.BeginScrollView(_logScroll, GUILayout.Height(150));
             EditorGUILayout.TextArea(_log.ToString(), GUILayout.ExpandHeight(true));
             EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawBuildAndDeploy(bool hasDeviceSelected)
+        {
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Build & deploy", EditorStyles.boldLabel);
+
+            BuildTarget[] targets = BuildRunner.SupportedTargets;
+            string[] targetLabels = new string[targets.Length];
+            for (int i = 0; i < targets.Length; i++)
+            {
+                targetLabels[i] = targets[i].ToString();
+            }
+
+            int previousTargetIndex = _selectedTargetIndex;
+            _selectedTargetIndex = EditorGUILayout.Popup(
+                "Target",
+                Mathf.Clamp(_selectedTargetIndex, 0, targets.Length - 1),
+                targetLabels
+            );
+            if (_selectedTargetIndex != previousTargetIndex)
+            {
+                // The expected extension differs per target, so re-derive the
+                // name instead of leaving a .exe queued for a Linux build.
+                _executableName = BuildRunner.DefaultExecutableName(SelectedTarget());
+            }
+
+            _developmentBuild = EditorGUILayout.Toggle("Development build", _developmentBuild);
+            _gameId = EditorGUILayout.TextField("Game ID", _gameId);
+            _outputDirectory = EditorGUILayout.TextField("Output directory", _outputDirectory);
+            _executableName = EditorGUILayout.TextField("Executable name", _executableName);
+
+            EditorGUILayout.HelpBox(
+                "Builds the scenes enabled in File > Build Settings, then deploys the whole "
+                    + "output directory so the executable's _Data folder goes with it. The "
+                    + "editor is unresponsive while the build runs.",
+                MessageType.Info
+            );
+
+            bool canDeploy = !_busy && _client != null && hasDeviceSelected;
+            using (new EditorGUI.DisabledScope(!canDeploy))
+            {
+                if (GUILayout.Button("Build & deploy"))
+                {
+                    _ = BuildAndDeployAsync();
+                }
+            }
+        }
+
+        private void DrawLogSync(bool hasDeviceSelected)
+        {
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Sync logs", EditorStyles.boldLabel);
+            _logsDirectory = EditorGUILayout.TextField("Local logs directory", _logsDirectory);
+
+            bool canSync = !_busy && _client != null && hasDeviceSelected;
+            using (new EditorGUI.DisabledScope(!canSync))
+            {
+                if (GUILayout.Button("Sync logs from selected device"))
+                {
+                    _ = SyncLogsAsync();
+                }
+            }
+        }
+
+        private DeviceEntry SelectedDevice()
+        {
+            if (_selectedDeviceIndex < 0 || _selectedDeviceIndex >= _devices.Length)
+            {
+                return null;
+            }
+            return _devices[_selectedDeviceIndex];
+        }
+
+        private async Awaitable BuildAndDeployAsync()
+        {
+            DeviceEntry device = SelectedDevice();
+            if (_client == null || device == null)
+            {
+                return;
+            }
+            string outputDirectory = _outputDirectory.Trim();
+            string executableName = _executableName.Trim();
+            string gameId = _gameId.Trim();
+            if (
+                outputDirectory.Length == 0
+                || executableName.Length == 0
+                || gameId.Length == 0
+            )
+            {
+                LogLine("Output directory, executable name, and game ID are all required.");
+                return;
+            }
+            if (!Path.IsPathRooted(outputDirectory))
+            {
+                LogLine("Output directory must be an absolute path.");
+                return;
+            }
+
+            LazyDeckClient client = _client;
+            BuildTarget target = SelectedTarget();
+            bool development = _developmentBuild;
+            _busy = true;
+            try
+            {
+                LogLine(
+                    $"Building {target} "
+                        + $"({(development ? "development" : "release")}) to {outputDirectory}..."
+                );
+                BuildOutcome build = BuildRunner.Build(
+                    target,
+                    outputDirectory,
+                    executableName,
+                    development
+                );
+                if (this == null)
+                {
+                    return;
+                }
+                if (!build.Ok)
+                {
+                    LogLine($"Build failed: {build.Error}");
+                    return;
+                }
+
+                LogLine($"Build finished. Deploying {outputDirectory} to {device.id}...");
+                ApiResult submit = await client.SubmitDeploymentAsync(
+                    device.id,
+                    gameId,
+                    outputDirectory
+                );
+                if (this == null || _client != client)
+                {
+                    return;
+                }
+                if (!submit.Ok)
+                {
+                    LogLine($"Deploy submission failed: {submit.ErrorMessage}");
+                    return;
+                }
+
+                await TrackJobAsync(client, submit, "Deploy");
+            }
+            finally
+            {
+                if (this != null)
+                {
+                    _busy = false;
+                    _currentJobId = "";
+                    Repaint();
+                }
+            }
+        }
+
+        private async Awaitable SyncLogsAsync()
+        {
+            DeviceEntry device = SelectedDevice();
+            if (_client == null || device == null)
+            {
+                return;
+            }
+            string logsDirectory = _logsDirectory.Trim();
+            if (logsDirectory.Length == 0)
+            {
+                LogLine("Local logs directory is required.");
+                return;
+            }
+            if (!Path.IsPathRooted(logsDirectory))
+            {
+                LogLine("Local logs directory must be an absolute path.");
+                return;
+            }
+
+            LazyDeckClient client = _client;
+            _busy = true;
+            try
+            {
+                LogLine($"Syncing logs from {device.id} to {logsDirectory}...");
+                ApiResult submit = await client.SubmitLogsSyncAsync(device.id, logsDirectory);
+                if (this == null || _client != client)
+                {
+                    return;
+                }
+                if (!submit.Ok)
+                {
+                    LogLine($"Log sync submission failed: {submit.ErrorMessage}");
+                    return;
+                }
+
+                await TrackJobAsync(client, submit, "Log sync");
+            }
+            finally
+            {
+                if (this != null)
+                {
+                    _busy = false;
+                    _currentJobId = "";
+                    Repaint();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Adopts the job named in a submission response as the window's
+        /// current job, polls it to a terminal state, and reports the outcome.
+        /// Shared by deploy and log sync, which differ only in their label.
+        /// </summary>
+        private async Awaitable TrackJobAsync(
+            LazyDeckClient client,
+            ApiResult submitResult,
+            string label
+        )
+        {
+            JobEntry queued = ParseJob(submitResult.Body);
+            if (queued == null || string.IsNullOrEmpty(queued.id))
+            {
+                LogLine($"{label} was submitted but the response named no job to poll.");
+                return;
+            }
+
+            _currentJobId = queued.id;
+            LogLine($"{label} job {queued.id} queued.");
+            Repaint();
+
+            JobEntry final = await PollJobAsync(client, queued.id);
+            if (this == null || _client != client || final == null)
+            {
+                return;
+            }
+
+            if (final.status == "succeeded")
+            {
+                LogLine($"{label} complete.");
+            }
+            else
+            {
+                string detail = final.error?.message;
+                if (string.IsNullOrEmpty(detail))
+                {
+                    detail = final.last_message ?? "";
+                }
+                LogLine($"{label} did not succeed ({final.status}): {detail}");
+            }
+        }
+
+        /// <summary>
+        /// Polls one job to a terminal state, logging only on status changes so
+        /// a long deploy doesn't flood the log with identical lines. Returns
+        /// null when the poll failed or this window/client was superseded.
+        /// </summary>
+        private async Awaitable<JobEntry> PollJobAsync(LazyDeckClient client, string jobId)
+        {
+            string lastStatus = "";
+            while (true)
+            {
+                ApiResult result = await client.GetJobAsync(jobId);
+                if (this == null || _client != client)
+                {
+                    return null;
+                }
+                if (!result.Ok)
+                {
+                    LogLine($"Failed to poll job {jobId}: {result.ErrorMessage}");
+                    return null;
+                }
+
+                JobEntry job = ParseJob(result.Body);
+                if (job == null)
+                {
+                    LogLine($"Failed to parse the status of job {jobId}.");
+                    return null;
+                }
+
+                if (job.status != lastStatus)
+                {
+                    LogLine($"Job {jobId}: {job.status}");
+                    lastStatus = job.status;
+                    Repaint();
+                }
+                if (job.status == "succeeded" || job.status == "failed" || job.status == "cancelled")
+                {
+                    return job;
+                }
+
+                await EditorDelay.ForSecondsAsync(1.0);
+                if (this == null || _client != client)
+                {
+                    return null;
+                }
+            }
+        }
+
+        private async Awaitable CancelCurrentJobAsync()
+        {
+            if (_client == null || string.IsNullOrEmpty(_currentJobId))
+            {
+                return;
+            }
+            // Deliberately does not clear _busy or _currentJobId: the in-flight
+            // PollJobAsync owns both and will observe the cancelled status on
+            // its next tick, exactly as the Godot dock does.
+            LazyDeckClient client = _client;
+            string jobId = _currentJobId;
+            LogLine($"Cancelling job {jobId}...");
+            ApiResult result = await client.CancelJobAsync(jobId);
+            if (this == null || _client != client)
+            {
+                return;
+            }
+            if (!result.Ok)
+            {
+                LogLine($"Failed to cancel job {jobId}: {result.ErrorMessage}");
+            }
+            Repaint();
+        }
+
+        private JobEntry ParseJob(string body)
+        {
+            if (string.IsNullOrEmpty(body))
+            {
+                return null;
+            }
+            try
+            {
+                return JsonUtility.FromJson<JobResponse>(body)?.job;
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
         }
 
         private async Awaitable ConnectAsync()
@@ -159,6 +568,9 @@ namespace LazyDeck.Editor
                 _devices = Array.Empty<DeviceEntry>();
                 _selectedDeviceIndex = -1;
                 _discovered = Array.Empty<DiscoveredDeviceEntry>();
+                // Reconnecting invalidates any job tracked against the old
+                // client — there is nothing left to poll or cancel.
+                _currentJobId = "";
 
                 ConnectionLocator.Result located = ConnectionLocator.Load();
                 if (!located.Ok)

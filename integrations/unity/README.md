@@ -4,23 +4,26 @@ A Unity Editor package (UPM) that talks to `lazydeck serve` (see the root
 README's ["How it talks to devices"](../../README.md) and issue #13) so
 you can discover, pair, and inspect Steam Deck / Steam Machine devkits
 without leaving the Unity Editor. The Unity counterpart of the
-[Godot plugin](../godot) — same API, same first-slice scope.
+[Godot plugin](../godot) — same API, same scope.
 
-## Status: connect + devices window only
+## Status: connect, devices, build & deploy, logs
 
-This first slice of issue #17 covers:
+The window (**Window → LazyDeck**) covers:
 
-- A "LazyDeck" window (**Window → LazyDeck**) that connects to an
-  already-running `lazydeck serve` by reading its connection file.
+- Connecting to an already-running `lazydeck serve` by reading its
+  connection file.
 - Listing the devices configured in `devices.toml`.
 - Browsing for devkits announcing themselves on the LAN (mDNS discovery).
 - Pairing this workstation's SSH key with a device that's already in
   `devices.toml`.
+- Building the project for a chosen standalone target and deploying the
+  result to the selected device, with job progress polled until it
+  finishes.
+- Syncing the selected device's logs to a local directory.
+- Cancelling an in-flight deploy or log-sync job.
 
-**Not included yet** (tracked as follow-up work on issue #17, matching
-what #14/#16 deferred on the Godot side):
+**Not included yet** (tracked as follow-up work on issue #17):
 
-- Build, deploy, and log-sync from the editor.
 - Launching/stopping a deployed title (the local service API itself
   doesn't support this yet either — see `/v1/capabilities`).
 - The package spawning `lazydeck serve` itself. For now, run `lazydeck
@@ -30,6 +33,34 @@ what #14/#16 deferred on the Godot side):
   so add the device to the config and restart `lazydeck serve` first,
   then Connect again (re-clicking Connect alone re-reads the connection
   file, not `devices.toml`).
+
+## Build behavior
+
+Build & deploy calls `BuildPipeline.BuildPlayer` in-process. Unlike the
+Godot side — where `EditorExport` turned out not to be exposed to
+GDScript, so that plugin shells out to a second `godot --headless
+--export-*` process — `BuildPipeline.BuildPlayer` is Unity's documented
+scriptable build entry point, so nothing is spawned here.
+
+Practical consequences:
+
+- **The editor is unresponsive while the build runs.** `BuildPlayer` is
+  synchronous; Unity's own build progress bar is what you'll see.
+- **It builds the scenes enabled in File → Build Settings**, not the
+  scene you happen to have open. If that list is empty, the window says
+  so rather than building an empty player.
+- **Target defaults to `StandaloneLinux64`**, the Deck's native target.
+  `StandaloneWindows64` is also offered because Proton runs Windows
+  builds on the Deck. Switching targets re-derives the executable name,
+  since Unity keys part of its output layout off the extension
+  (`.x86_64` vs `.exe`).
+- **The whole output directory is deployed**, not just the executable —
+  Unity writes the player's `_Data/` folder beside it, and the game
+  won't run without it. That's why the window asks for an output
+  directory and an executable name separately rather than one combined
+  path. Point it somewhere outside `Assets/`, or Unity will import your
+  build output as project assets on the next refresh (the default is a
+  `Build/` folder beside `Assets/`).
 
 ## Requirements
 
@@ -55,11 +86,26 @@ else in it.
 
 ## Validation status
 
-The package sources compile without warnings against Unity 6.5's real
-managed editor assemblies. A full Editor run is still outstanding: the
-available local Unity installation had no active Editor license, so it
-could recognize the demo project but could not import and execute it.
-Pairing and discovery also still require real Steam hardware testing.
+The connect/devices/discover/pair sources compile without warnings
+against Unity 6.5's real managed editor assemblies.
+
+**The build/deploy/logs/cancel additions have not been compiled against
+anything.** They were written without a Unity Editor or any C# compiler
+available, so they carry the same caveat the connect slice originally
+did — see the note in issue #23. The pieces most worth checking first in
+a real editor:
+
+- `BuildRunner.Build`'s `BuildPlayerOptions` shape and its handling of a
+  `BuildReport` whose result isn't `Succeeded`.
+- `EditorDelay.ForSecondsAsync`, which drives job polling off
+  `EditorApplication.update` rather than `Awaitable.WaitForSecondsAsync`
+  precisely because frame-loop-driven awaits proved unreliable for an
+  `EditorWindow` outside Play mode last time.
+
+A full Editor run is also still outstanding: the available local Unity
+installation had no active Editor license, so it could recognize the
+demo project but could not import and execute it. Pairing, deployment
+upload, and discovery still require real Steam hardware testing.
 
 ## How it finds `lazydeck serve`
 
