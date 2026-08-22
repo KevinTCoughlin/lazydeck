@@ -1,0 +1,6 @@
+{
+  "error": {
+    "kind": "not-found",
+    "message": "no configured device \"nope\""
+  }
+}

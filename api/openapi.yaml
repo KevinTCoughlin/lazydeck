@@ -1,0 +1,507 @@
+openapi: 3.0.3
+info:
+  title: LazyDeck local service API
+  version: "1.0.0"
+  description: |
+    Versioned, localhost-only HTTP+SSE API over LazyDeck's existing SteamOS
+    Devkit operations (see issue #13). Engine integrations (the Godot
+    plugin in issue #14, and later a Unity package) consume this contract
+    instead of importing Go packages, invoking the Python bridge directly,
+    or reimplementing Valve's SteamOS Devkit protocol.
+
+    This document is the source of truth for routes and payload shapes;
+    internal/server implements it. Routes not described here (e.g. a future
+    /v2) are out of scope for this file.
+
+    launch and stop are included below as routes (POST
+    /v1/devices/{deviceId}/games/{gameId}/launch and .../stop), so their URL
+    shape is stable, but both always return 501 with error kind
+    "unsupported" in this version, because python/cli.py has no launch/stop
+    primitive yet. Check GET /v1/capabilities before calling them.
+servers:
+  - url: http://127.0.0.1:{port}
+    description: >-
+      Loopback only. Port and the required bearer token are read from the
+      connection file `lazydeck serve` writes on startup (see
+      internal/server/connection.go), not from this document.
+    variables:
+      port:
+        default: "0"
+security:
+  - bearerAuth: []
+paths:
+  /v1/health:
+    get:
+      summary: Liveness/version check.
+      operationId: getHealth
+      responses:
+        "200":
+          description: The service is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/capabilities:
+    get:
+      summary: What this server version supports.
+      operationId: getCapabilities
+      responses:
+        "200":
+          description: Capability flags an engine plugin should check before calling an operation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapabilitiesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/devices:
+    get:
+      summary: List configured devices (devices.toml).
+      operationId: listDevices
+      responses:
+        "200":
+          description: The configured device list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Device"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/devices/discover:
+    post:
+      summary: Browse the LAN for devkits announcing themselves over mDNS.
+      operationId: discoverDevices
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                timeout_seconds:
+                  type: number
+                  format: float
+                  default: 5
+                  minimum: 0
+                  maximum: 300
+                  description: How long to browse before returning whatever was found.
+      responses:
+        "200":
+          description: Devkits observed on the LAN in the browse window (may be empty).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DiscoveredDevice"
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/DeviceError"
+
+  /v1/devices/{deviceId}/pair:
+    post:
+      summary: Pair this workstation's SSH key with a configured device.
+      operationId: pairDevice
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: Pairing succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  paired: { type: boolean }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/DeviceError"
+
+  /v1/devices/{deviceId}/status:
+    get:
+      summary: Fetch a device's current steamos-get-status output.
+      operationId: getDeviceStatus
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: Device status.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  status:
+                    type: object
+                    description: Raw steamos-get-status --json output; shape is device/OS-version dependent.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/DeviceError"
+
+  /v1/devices/{deviceId}/games:
+    get:
+      summary: List games currently installed/deployed on a device.
+      operationId: listGames
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: Installed games.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  games:
+                    type: array
+                    items: {}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/DeviceError"
+
+  /v1/devices/{deviceId}/deployments:
+    post:
+      summary: Deploy a local build directory to a device as an async job.
+      operationId: createDeployment
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [game_id, directory]
+              properties:
+                game_id:
+                  type: string
+                  pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+                  description: >-
+                    Must start with a letter or digit and contain only
+                    letters, digits, '.', '_', or '-' (max 128 characters).
+                directory:
+                  type: string
+                  description: >-
+                    Absolute path to the exported build on this workstation.
+                    A relative path is rejected: it would otherwise resolve
+                    against the bundled Python runtime's directory, not
+                    this workstation's filesystem as the caller intends.
+                delete_extraneous:
+                  type: boolean
+                  default: false
+                  description: Mirror the remote directory exactly (rsync --delete) instead of only adding/updating files.
+      responses:
+        "202":
+          description: Deployment accepted and queued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job:
+                    $ref: "#/components/schemas/Job"
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/DeviceBusy"
+
+  /v1/devices/{deviceId}/logs/sync:
+    post:
+      summary: Pull the device's Steam logs and minidumps into a local directory, as an async job.
+      operationId: syncLogs
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [directory]
+              properties:
+                game_id:
+                  type: string
+                  pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+                  description: >-
+                    Accepted for forward compatibility but currently
+                    unused: this operation always fetches the device's
+                    complete ~/.local/share/Steam/logs and minidump
+                    directories regardless of this value — it cannot yet
+                    filter by title. Optional; omit it.
+                directory:
+                  type: string
+                  description: >-
+                    Absolute local directory to sync logs into. A relative
+                    path is rejected — see the deployments endpoint's
+                    `directory` field for why.
+      responses:
+        "202":
+          description: Log sync accepted and queued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job:
+                    $ref: "#/components/schemas/Job"
+        "400":
+          $ref: "#/components/responses/InvalidInput"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/DeviceBusy"
+
+  /v1/devices/{deviceId}/games/{gameId}/launch:
+    post:
+      summary: Launch a deployed title. Not implemented in this version — see capabilities.launch.
+      operationId: launchGame
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+        - $ref: "#/components/parameters/GameId"
+      responses:
+        "501":
+          $ref: "#/components/responses/Unsupported"
+
+  /v1/devices/{deviceId}/games/{gameId}/stop:
+    post:
+      summary: Stop a running title. Not implemented in this version — see capabilities.stop.
+      operationId: stopGame
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+        - $ref: "#/components/parameters/GameId"
+      responses:
+        "501":
+          $ref: "#/components/responses/Unsupported"
+
+  /v1/jobs/{jobId}:
+    get:
+      summary: Fetch a job's current state.
+      operationId: getJob
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job:
+                    $ref: "#/components/schemas/Job"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Request cancellation of a job (idempotent; a no-op on an already-terminal job).
+      operationId: cancelJob
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "202":
+          description: Cancellation requested; job snapshot as of the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job:
+                    $ref: "#/components/schemas/Job"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/jobs/{jobId}/events:
+    get:
+      summary: Stream a job's event history and subsequent updates as Server-Sent Events.
+      description: >-
+        text/event-stream. Each event is `event: job` with a JSON-encoded
+        Event as its data. The stream replays every event from the
+        beginning on connect and closes once the job reaches a terminal
+        status (succeeded/failed/cancelled) and that event has been sent.
+      operationId: streamJobEvents
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: SSE stream of Event objects.
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >-
+        Per-launch token from the connection file `lazydeck serve` writes
+        on startup. Required on every /v1/ route, including /v1/health.
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema: { type: string }
+      description: A device's configured name (devices.toml [[device]].name).
+    GameId:
+      name: gameId
+      in: path
+      required: true
+      schema: { type: string }
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema: { type: string }
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status: { type: string, enum: [ok] }
+        api_version: { type: string }
+    CapabilitiesResponse:
+      type: object
+      properties:
+        api_version: { type: string }
+        operations:
+          type: object
+          additionalProperties: { type: boolean }
+          description: >-
+            Keys today: discover, pair, status, games, deploy, logs_sync,
+            launch, stop. launch and stop are always false in this version.
+    Device:
+      type: object
+      properties:
+        id: { type: string }
+        machine: { type: string }
+        login: { type: string }
+    DiscoveredDevice:
+      type: object
+      properties:
+        name: { type: string }
+        address: { type: string }
+        port: { type: integer }
+    ApiError:
+      type: object
+      properties:
+        kind:
+          type: string
+          description: >-
+            Stable machine-readable reason. Known values: unauthorized,
+            invalid-input, not-found, device-busy, unreachable, auth-failed,
+            script-error, unsupported, unknown, internal.
+          example: unreachable
+        message:
+          type: string
+    ApiErrorEnvelope:
+      type: object
+      properties:
+        error:
+          $ref: "#/components/schemas/ApiError"
+    JobStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled]
+    Job:
+      type: object
+      properties:
+        id: { type: string }
+        device_id: { type: string }
+        operation: { type: string, enum: [deploy, logs-sync] }
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        created_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, nullable: true }
+        finished_at: { type: string, format: date-time, nullable: true }
+        last_message: { type: string }
+        error:
+          $ref: "#/components/schemas/ApiError"
+          nullable: true
+    Event:
+      type: object
+      properties:
+        seq: { type: integer }
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        message: { type: string }
+        error:
+          $ref: "#/components/schemas/ApiError"
+          nullable: true
+        time: { type: string, format: date-time }
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    InvalidInput:
+      description: The request body failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    NotFound:
+      description: The device or job ID does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    DeviceBusy:
+      description: The target device already has a queued or running job.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    DeviceError:
+      description: The underlying devkit_client operation failed (unreachable device, SSH auth failure, or a script error).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    Unsupported:
+      description: This operation is not implemented by the current backend. Check /v1/capabilities first.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"

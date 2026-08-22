@@ -1,0 +1,6 @@
+{
+  "error": {
+    "kind": "unsupported",
+    "message": "launch is not yet implemented by the LazyDeck backend; check /v1/capabilities"
+  }
+}

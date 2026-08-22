@@ -1,0 +1,6 @@
+{
+  "error": {
+    "kind": "unauthorized",
+    "message": "missing or invalid bearer token"
+  }
+}

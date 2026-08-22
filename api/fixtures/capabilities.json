@@ -1,0 +1,13 @@
+{
+  "api_version": "v1",
+  "operations": {
+    "deploy": true,
+    "discover": true,
+    "games": true,
+    "launch": false,
+    "logs_sync": true,
+    "pair": true,
+    "status": true,
+    "stop": false
+  }
+}
