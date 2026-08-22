@@ -83,7 +83,8 @@ func _build_ui() -> void:
 	discover_note.autowrap_mode = TextServer.AUTOWRAP_WORD
 	discover_note.text = (
 		"Discovered devices aren't automatically pairable: add a matching "
-		+ "[[device]] entry to devices.toml first, then Connect again."
+		+ "[[device]] entry to devices.toml and restart lazydeck serve first "
+		+ "(it only reads devices.toml at startup), then Connect again."
 	)
 	root.add_child(discover_note)
 

@@ -24,8 +24,11 @@ This first slice of issue #14 covers:
 - The plugin spawning `lazydeck serve` itself. For now, run `lazydeck
   serve` yourself in a terminal before opening the dock.
 - Pairing a device discovered over mDNS that isn't already in
-  `devices.toml` — add it to the config first (same as the TUI's
-  separate add-device flow), then Connect again.
+  `devices.toml` — `lazydeck serve` reads `devices.toml` once at
+  startup, so add the device to the config and restart `lazydeck
+  serve` first (same as the TUI's separate add-device flow), then
+  Connect again (re-clicking Connect alone re-reads the connection
+  file, not `devices.toml`).
 
 ## Requirements
 
