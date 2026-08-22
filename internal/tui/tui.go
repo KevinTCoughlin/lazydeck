@@ -276,7 +276,7 @@ func deployCmd(cli *client.Client, index int, opID uint64, dev config.Device, na
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		err := cli.Deploy(ctx, dev.Machine, dev.Login, name, dir, false)
+		err := cli.Deploy(ctx, dev.Machine, dev.Login, name, dir, false, nil)
 		return actionDoneMsg{index: index, opID: opID, action: fmt.Sprintf("deploy %s", name), err: err}
 	}
 }

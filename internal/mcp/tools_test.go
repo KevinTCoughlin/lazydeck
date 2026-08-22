@@ -182,3 +182,54 @@ func TestDeployTool_SurfacesAPIError(t *testing.T) {
 		t.Errorf("error text %q does not mention device-busy", text)
 	}
 }
+
+// TestDeployTool_ForwardsArgv locks in that the deploy tool's argv argument
+// reaches the /v1 request body: without it, a real devkit's shortcut has
+// nothing to launch and the deploy fails once rsync finishes (see
+// internal/client.Client.Deploy's doc), a gap found during real-hardware
+// validation of this MCP server.
+func TestDeployTool_ForwardsArgv(t *testing.T) {
+	var gotBody struct {
+		Argv []string `json:"argv"`
+	}
+	cli := newFakeAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			// waitAndResult always calls GetJob at least once, even for
+			// an already-terminal job returned by the initial POST.
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"job": mcpapi.Job{ID: "job-1", DeviceID: "deck-1", Operation: "deploy", Status: "succeeded"},
+			})
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decoding request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job": mcpapi.Job{ID: "job-1", DeviceID: "deck-1", Operation: "deploy", Status: "succeeded"},
+		})
+	})
+	session := connectedClient(t, cli, true)
+
+	res, err := session.CallTool(t.Context(), &sdkmcp.CallToolParams{
+		Name: "deploy",
+		Arguments: map[string]any{
+			"device_id": "deck-1",
+			"game_id":   "mygame",
+			"directory": "/abs/path",
+			"argv":      []string{"./MyGame.sh", "--fullscreen"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(deploy): %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("deploy returned IsError: %+v", res.Content)
+	}
+	want := []string{"./MyGame.sh", "--fullscreen"}
+	if len(gotBody.Argv) != len(want) || gotBody.Argv[0] != want[0] || gotBody.Argv[1] != want[1] {
+		t.Errorf("forwarded argv = %v, want %v", gotBody.Argv, want)
+	}
+}

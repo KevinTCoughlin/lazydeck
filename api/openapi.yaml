@@ -208,6 +208,12 @@ paths:
                   description: >-
                     Must start with a letter or digit and contain only
                     letters, digits, '.', '_', or '-' (max 128 characters).
+                    In practice, avoid '-' for this endpoint: on real
+                    hardware it makes the remote Steam client reject
+                    shortcut registration with a generic
+                    "missing/invalid arguments" error (see
+                    docs/DEVICE_LAUNCH.md); '.', '_', and alphanumerics
+                    are unaffected.
                 directory:
                   type: string
                   description: >-
@@ -219,6 +225,15 @@ paths:
                   type: boolean
                   default: false
                   description: Mirror the remote directory exactly (rsync --delete) instead of only adding/updating files.
+                argv:
+                  type: array
+                  items:
+                    type: string
+                  description: >-
+                    Command-line the resulting Steam shortcut launches with,
+                    e.g. ["./MyGame.sh", "--fullscreen"]. Without it, the
+                    shortcut has nothing to launch and the deploy job fails
+                    once the rsync step finishes.
       responses:
         "202":
           description: Deployment accepted and queued.

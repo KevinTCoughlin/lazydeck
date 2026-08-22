@@ -166,9 +166,10 @@ func validateDirectory(dir string) error {
 }
 
 type deployRequest struct {
-	GameID           string `json:"game_id"`
-	Directory        string `json:"directory"`
-	DeleteExtraneous bool   `json:"delete_extraneous"`
+	GameID           string   `json:"game_id"`
+	Directory        string   `json:"directory"`
+	DeleteExtraneous bool     `json:"delete_extraneous"`
+	Argv             []string `json:"argv,omitempty"`
 }
 
 func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +195,7 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(ctx, deployTimeout)
 		defer cancel()
 		report("deploying to " + d.Name)
-		return s.client.Deploy(ctx, d.Machine, d.Login, req.GameID, req.Directory, req.DeleteExtraneous)
+		return s.client.Deploy(ctx, d.Machine, d.Login, req.GameID, req.Directory, req.DeleteExtraneous, req.Argv)
 	})
 	if err != nil {
 		writeSubmitError(w, err)

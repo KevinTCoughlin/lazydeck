@@ -18,3 +18,18 @@ and their stable API routes return `501 unsupported`. Engine integrations must
 respect those flags rather than presenting controls that cannot work
 reliably. This policy can be revisited only if Valve adds supported devkit
 primitives that can be validated against real hardware.
+
+## Known caveat: avoid `-` in `game_id` for real deploys
+
+`/v1`'s `game_id` pattern (`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`) permits
+letters, digits, `.`, `_`, and `-`. On real hardware, however, a `-` in
+`game_id` reliably makes the *remote* Steam client reject shortcut
+registration during `deploy` with a generic `missing/invalid arguments`
+script error, regardless of `argv` — this was reproduced with several
+dash-containing ids and went away once the dash was removed. The failure
+happens inside Valve's own on-device devkit-utils protocol handler
+(installed on the Steam Deck/Steam Machine itself, not part of this
+repository), which builds an unencoded `create-shortcut?...&gameid=...`
+command string from the raw `game_id`. Until that's confirmed fixed on
+Valve's side, stick to `[A-Za-z0-9._]` in `game_id` for anything you
+intend to actually deploy and launch.

@@ -13,7 +13,7 @@ func TestDeployRespectsContextCancellation(t *testing.T) {
 	c := &Client{DeployDelay: time.Hour}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- c.Deploy(ctx, "m", "l", "game", "/tmp/build", false) }()
+	go func() { done <- c.Deploy(ctx, "m", "l", "game", "/tmp/build", false, nil) }()
 
 	cancel()
 
@@ -32,7 +32,7 @@ func TestDeployReturnsConfiguredErrorAfterDelay(t *testing.T) {
 	c := &Client{DeployDelay: 10 * time.Millisecond, DeployErr: wantErr}
 
 	start := time.Now()
-	err := c.Deploy(context.Background(), "m", "l", "game", "/tmp/build", false)
+	err := c.Deploy(context.Background(), "m", "l", "game", "/tmp/build", false, nil)
 	if time.Since(start) < 10*time.Millisecond {
 		t.Fatal("Deploy returned before DeployDelay elapsed")
 	}

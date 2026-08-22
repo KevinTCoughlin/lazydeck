@@ -38,7 +38,7 @@ type devkitClient interface {
 	Register(ctx context.Context, machine string) error
 	Status(ctx context.Context, machine, login string) (*client.Status, error)
 	ListGames(ctx context.Context, machine, login string) ([]any, error)
-	Deploy(ctx context.Context, machine, login, gameID, directory string, deleteExtraneous bool) error
+	Deploy(ctx context.Context, machine, login, gameID, directory string, deleteExtraneous bool, argv []string) error
 	SyncLogs(ctx context.Context, machine, login, gameID, directory string) error
 }
 

@@ -32,6 +32,7 @@ type fakeClient struct {
 	syncLogsErr    error
 
 	deployCalls int
+	lastArgv    []string
 }
 
 func (f *fakeClient) Discover(ctx context.Context, timeout time.Duration) ([]client.DiscoveredDevice, error) {
@@ -48,9 +49,10 @@ func (f *fakeClient) ListGames(ctx context.Context, machine, login string) ([]an
 	return f.games, f.gamesErr
 }
 
-func (f *fakeClient) Deploy(ctx context.Context, machine, login, gameID, directory string, deleteExtraneous bool) error {
+func (f *fakeClient) Deploy(ctx context.Context, machine, login, gameID, directory string, deleteExtraneous bool, argv []string) error {
 	f.mu.Lock()
 	f.deployCalls++
+	f.lastArgv = argv
 	f.mu.Unlock()
 	if f.deployDelay > 0 {
 		select {
@@ -234,6 +236,43 @@ func TestDeployRunsAsJobAndReportsSuccess(t *testing.T) {
 
 	if fc.deployCalls != 1 {
 		t.Fatalf("deployCalls = %d, want 1", fc.deployCalls)
+	}
+}
+
+// TestDeployForwardsArgv locks in that an argv array in the request body
+// reaches devkitClient.Deploy: without it, a real devkit's Steam shortcut
+// has nothing to launch and the underlying script fails once rsync
+// finishes, a gap found during real-hardware validation of the MCP server
+// built on top of this handler.
+func TestDeployForwardsArgv(t *testing.T) {
+	fc := &fakeClient{}
+	_, ts := newTestServer(fc, config.Device{Name: "deck-1", Machine: "steamdeck.local"})
+	defer ts.Close()
+
+	resp := doRequest(t, ts, "POST", "/v1/devices/deck-1/deployments",
+		map[string]any{"game_id": "mygame", "directory": "/tmp/build", "argv": []string{"./run.sh", "--flag"}},
+		testToken)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		fc.mu.Lock()
+		calls := fc.deployCalls
+		fc.mu.Unlock()
+		if calls > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	fc.mu.Lock()
+	got := fc.lastArgv
+	fc.mu.Unlock()
+	want := []string{"./run.sh", "--flag"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("lastArgv = %v, want %v", got, want)
 	}
 }
 

@@ -195,17 +195,18 @@ func registerMutatingTools(s *mcp.Server, cli *mcpapi.Client) {
 	})
 
 	type deployArgs struct {
-		DeviceID         string `json:"device_id" jsonschema:"the configured device id to deploy to"`
-		GameID           string `json:"game_id" jsonschema:"identifier for the deployed title; letters, digits, '.', '_', '-' only"`
-		Directory        string `json:"directory" jsonschema:"absolute path to the exported build on this workstation"`
-		DeleteExtraneous bool   `json:"delete_extraneous,omitempty" jsonschema:"mirror the remote directory exactly (rsync --delete) instead of only adding/updating files"`
+		DeviceID         string   `json:"device_id" jsonschema:"the configured device id to deploy to"`
+		GameID           string   `json:"game_id" jsonschema:"identifier for the deployed title; letters, digits, '.', '_', '-' only"`
+		Directory        string   `json:"directory" jsonschema:"absolute path to the exported build on this workstation"`
+		DeleteExtraneous bool     `json:"delete_extraneous,omitempty" jsonschema:"mirror the remote directory exactly (rsync --delete) instead of only adding/updating files"`
+		Argv             []string `json:"argv,omitempty" jsonschema:"command-line the Steam shortcut launches with, e.g. ['./MyGame.sh']; without it the shortcut has nothing to launch and the deploy job fails once rsync finishes"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "deploy",
 		Description: "Deploy a local build directory to a devkit and wait for it to finish (up to " +
 			deployToolTimeout.String() + "). Returns the job id regardless, so a slow deploy can still be polled with get_job.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args deployArgs) (*mcp.CallToolResult, any, error) {
-		job, err := cli.Deploy(ctx, args.DeviceID, args.GameID, args.Directory, args.DeleteExtraneous)
+		job, err := cli.Deploy(ctx, args.DeviceID, args.GameID, args.Directory, args.DeleteExtraneous, args.Argv)
 		if err != nil {
 			return toolAPIError(err)
 		}
