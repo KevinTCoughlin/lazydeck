@@ -300,19 +300,18 @@ HTTP+SSE API, so engine editors can drive them without shelling out to
 [rendered API docs](https://kevintcoughlin.com/lazydeck/api/) or read
 [`api/openapi.yaml`](api/openapi.yaml) directly for the contract.
 
-Two editor integrations are built on that API so far:
+Two editor integrations are built on that API, both covering the same
+operations — discover, pair, and inspect devkits, build and deploy the
+current project, and sync logs, without leaving the editor:
 
-- A Godot 4 editor plugin: [`integrations/godot`](integrations/godot) —
-  run `lazydeck serve`, then enable the plugin to discover, pair, and
-  inspect devkits, build and deploy the current project, and sync logs,
-  all from a dock in the editor.
+- A Godot 4 editor plugin (Godot 4.3+):
+  [`integrations/godot`](integrations/godot).
 - A Unity Editor package (Unity 2023.1 or newer, including Unity 6):
-  [`integrations/unity`](integrations/unity), currently covering connect +
-  devices only (discover, pair, inspect — build/deploy from the editor is
-  follow-up work).
+  [`integrations/unity`](integrations/unity).
 
-Each directory's README covers current scope and links a runnable example
-project.
+Run `lazydeck serve`, then enable the plugin or add the package. Each
+directory's README covers current scope, engine-specific build behavior,
+and a runnable example project.
 
 ## Troubleshooting
 

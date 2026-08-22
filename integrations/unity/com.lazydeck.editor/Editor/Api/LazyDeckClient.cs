@@ -165,10 +165,93 @@ namespace LazyDeck.Editor.Api
         public Awaitable<ApiResult> GetDeviceStatusAsync(string deviceId) =>
             RequestAsync("GET", $"/v1/devices/{UnityWebRequest.EscapeURL(deviceId)}/status");
 
+        /// <summary>
+        /// Submits a deploy job for deviceId. directory must be an absolute
+        /// path on this workstation (the API rejects a relative one — see
+        /// api/openapi.yaml's deployments endpoint). Returns immediately with
+        /// the queued job's snapshot; poll GetJobAsync to observe progress.
+        /// </summary>
+        public Awaitable<ApiResult> SubmitDeploymentAsync(
+            string deviceId,
+            string gameId,
+            string directory,
+            bool deleteExtraneous = false
+        )
+        {
+            string body = JsonUtility.ToJson(
+                new DeploymentRequest
+                {
+                    game_id = gameId,
+                    directory = directory,
+                    delete_extraneous = deleteExtraneous,
+                }
+            );
+            return RequestAsync(
+                "POST",
+                $"/v1/devices/{UnityWebRequest.EscapeURL(deviceId)}/deployments",
+                body
+            );
+        }
+
+        /// <summary>
+        /// Submits a log-sync job for deviceId. gameId is accepted for forward
+        /// compatibility but currently unused by the backend (it always fetches
+        /// the device's complete Steam logs/minidumps) — see api/openapi.yaml.
+        ///
+        /// Two request DTOs rather than one nullable field: JsonUtility always
+        /// serializes every public field, so an empty gameId on a shared DTO
+        /// would send `"game_id": ""` instead of omitting the key, which is a
+        /// different request than the Godot client sends.
+        /// </summary>
+        public Awaitable<ApiResult> SubmitLogsSyncAsync(
+            string deviceId,
+            string directory,
+            string gameId = ""
+        )
+        {
+            string body = string.IsNullOrEmpty(gameId)
+                ? JsonUtility.ToJson(new LogsSyncRequest { directory = directory })
+                : JsonUtility.ToJson(
+                    new LogsSyncRequestWithGame { directory = directory, game_id = gameId }
+                );
+            return RequestAsync(
+                "POST",
+                $"/v1/devices/{UnityWebRequest.EscapeURL(deviceId)}/logs/sync",
+                body
+            );
+        }
+
+        public Awaitable<ApiResult> GetJobAsync(string jobId) =>
+            RequestAsync("GET", $"/v1/jobs/{UnityWebRequest.EscapeURL(jobId)}");
+
+        public Awaitable<ApiResult> CancelJobAsync(string jobId) =>
+            RequestAsync("DELETE", $"/v1/jobs/{UnityWebRequest.EscapeURL(jobId)}");
+
         [Serializable]
         private sealed class DiscoverRequest
         {
             public float timeout_seconds;
+        }
+
+        [Serializable]
+        private sealed class DeploymentRequest
+        {
+            public string game_id;
+            public string directory;
+            public bool delete_extraneous;
+        }
+
+        [Serializable]
+        private sealed class LogsSyncRequest
+        {
+            public string directory;
+        }
+
+        [Serializable]
+        private sealed class LogsSyncRequestWithGame
+        {
+            public string directory;
+            public string game_id;
         }
     }
 }
