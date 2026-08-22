@@ -114,9 +114,13 @@ jobs:
       - run: shellcheck install.sh packaging/deb/postinstall.sh scripts/*.sh
 
   container:
-    name: Development container
+    name: Container parity (${{ matrix.target }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ci, godot-integration]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: docker build --tag lazydeck-dev:test --file Containerfile .
-      - run: docker run --rm lazydeck-dev:test
+      - run: docker build --target ${{ matrix.target }} --tag lazydeck-${{ matrix.target }}:test --file Containerfile .
+      - run: docker run --rm lazydeck-${{ matrix.target }}:test
