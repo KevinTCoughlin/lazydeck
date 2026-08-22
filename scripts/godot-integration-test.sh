@@ -80,6 +80,22 @@ if [[ ! -f "${connection_file}" ]]; then
   exit 1
 fi
 
+# A fresh checkout has no examples/godot-demo/.godot cache, so the addon's
+# class_name-declared globals (LazyDeckClient, LazyDeckExportRunner, ...)
+# aren't registered yet. `--script` alone only parses/runs the one script
+# given to it -- it never scans the project -- so referencing any of those
+# globals from integration_test.gd would fail to parse with "Identifier
+# ... not declared in the current scope" the first time this runs (e.g. in
+# CI, or any other clone that hasn't opened the project in the editor
+# before). Booting once in `--editor --quit` mode forces Godot's
+# first_scan_filesystem + update_scripts_classes step, which writes
+# .godot/global_script_class_cache.cfg and makes the globals resolvable by
+# name for the `--script` invocation that follows.
+echo "warming Godot project class cache..."
+"${GODOT_BIN}" --headless --editor \
+  --path "${ROOT}/examples/godot-demo" \
+  --quit
+
 echo "running Godot integration test..."
 "${GODOT_BIN}" --headless \
   --path "${ROOT}/examples/godot-demo" \
