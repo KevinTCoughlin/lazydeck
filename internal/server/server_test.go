@@ -69,7 +69,10 @@ func (f *fakeClient) SyncLogs(ctx context.Context, machine, login, gameID, direc
 const testToken = "test-token"
 
 func newTestServer(fc *fakeClient, devices ...config.Device) (*Server, *httptest.Server) {
-	s := New(fc, &config.Config{Devices: devices}, testToken)
+	s, err := New(fc, &config.Config{Devices: devices}, testToken)
+	if err != nil {
+		panic(err) // test helper: a bad fixture here is a test bug, not a runtime condition to assert on
+	}
 	ts := httptest.NewServer(s.Handler())
 	return s, ts
 }
@@ -350,5 +353,134 @@ func TestCancelJobEndpoint(t *testing.T) {
 			t.Fatalf("job did not cancel in time, last status %q", got.Job.Status)
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestNewRejectsDuplicateDeviceNames(t *testing.T) {
+	cfg := &config.Config{Devices: []config.Device{
+		{Name: "deck-1", Machine: "a.local"},
+		{Name: "deck-1", Machine: "b.local"},
+	}}
+	if _, err := New(&fakeClient{}, cfg, testToken); err == nil {
+		t.Fatal("expected an error for duplicate device names")
+	}
+}
+
+func TestUnmatchedRouteReturnsJSONNotFound(t *testing.T) {
+	_, ts := newTestServer(&fakeClient{})
+	defer ts.Close()
+
+	resp := doRequest(t, ts, "GET", "/v1/nope", nil, testToken)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("content-type = %q, want application/json", ct)
+	}
+	body := decodeBody[errorEnvelope](t, resp)
+	if body.Error.Kind != "not-found" {
+		t.Fatalf("kind = %q, want not-found", body.Error.Kind)
+	}
+}
+
+func TestDisallowedMethodReturnsJSONError(t *testing.T) {
+	_, ts := newTestServer(&fakeClient{})
+	defer ts.Close()
+
+	resp := doRequest(t, ts, "DELETE", "/v1/health", nil, testToken)
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", resp.StatusCode)
+	}
+	body := decodeBody[errorEnvelope](t, resp)
+	if body.Error.Kind != "invalid-input" {
+		t.Fatalf("kind = %q, want invalid-input", body.Error.Kind)
+	}
+}
+
+func TestDeployRejectsRelativeDirectory(t *testing.T) {
+	_, ts := newTestServer(&fakeClient{}, config.Device{Name: "deck-1", Machine: "steamdeck.local"})
+	defer ts.Close()
+
+	resp := doRequest(t, ts, "POST", "/v1/devices/deck-1/deployments",
+		map[string]string{"game_id": "mygame", "directory": "build/output"}, testToken)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for a relative directory", resp.StatusCode)
+	}
+}
+
+func TestDeployRejectsInvalidGameID(t *testing.T) {
+	_, ts := newTestServer(&fakeClient{}, config.Device{Name: "deck-1", Machine: "steamdeck.local"})
+	defer ts.Close()
+
+	for _, gameID := range []string{
+		"-leading-dash",
+		"has spaces",
+		"has/slash",
+		string(make([]byte, 300)), // over any sane length limit
+	} {
+		resp := doRequest(t, ts, "POST", "/v1/devices/deck-1/deployments",
+			map[string]string{"game_id": gameID, "directory": "/tmp/build"}, testToken)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("game_id %q: status = %d, want 400", gameID, resp.StatusCode)
+		}
+	}
+}
+
+func TestDiscoverRejectsOutOfRangeTimeout(t *testing.T) {
+	_, ts := newTestServer(&fakeClient{})
+	defer ts.Close()
+
+	for _, seconds := range []float64{-1, 1e9} {
+		resp := doRequest(t, ts, "POST", "/v1/devices/discover", map[string]float64{"timeout_seconds": seconds}, testToken)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("timeout_seconds=%v: status = %d, want 400", seconds, resp.StatusCode)
+		}
+	}
+}
+
+func TestDecodeJSONBodyRejectsTrailingData(t *testing.T) {
+	_, ts := newTestServer(&fakeClient{}, config.Device{Name: "deck-1", Machine: "steamdeck.local"})
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/devices/deck-1/deployments",
+		strings.NewReader(`{"game_id":"mygame","directory":"/tmp/build"}{"extra":true}`))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for a body with trailing JSON", resp.StatusCode)
+	}
+}
+
+func TestDecodeJSONBodyRejectsOversizedRequest(t *testing.T) {
+	_, ts := newTestServer(&fakeClient{}, config.Device{Name: "deck-1", Machine: "steamdeck.local"})
+	defer ts.Close()
+
+	huge := strings.Repeat("a", maxRequestBodyBytes+1)
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/devices/deck-1/deployments",
+		strings.NewReader(`{"game_id":"mygame","directory":"/tmp/build","note":"`+huge+`"}`))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for an oversized body", resp.StatusCode)
+	}
+}
+
+func TestLogsSyncGameIDIsOptional(t *testing.T) {
+	fc := &fakeClient{}
+	_, ts := newTestServer(fc, config.Device{Name: "deck-1", Machine: "steamdeck.local"})
+	defer ts.Close()
+
+	resp := doRequest(t, ts, "POST", "/v1/devices/deck-1/logs/sync",
+		map[string]string{"directory": "/tmp/logs"}, testToken)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 with no game_id, since sync_logs always fetches the full log/minidump directory", resp.StatusCode)
 	}
 }

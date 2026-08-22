@@ -6,14 +6,24 @@ import (
 	"testing"
 )
 
-func TestWriteAndReadConnectionInfoRoundTrip(t *testing.T) {
+func TestAcquireWriteReadConnectionInfoRoundTrip(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	info := ConnectionInfo{PID: os.Getpid(), Port: 12345, BaseURL: "http://127.0.0.1:12345", Token: "secret", APIVersion: APIVersion}
-
-	path, err := writeConnectionInfo(info)
+	path, err := connectionFilePath()
 	if err != nil {
+		t.Fatalf("connectionFilePath: %v", err)
+	}
+
+	f, err := acquireConnectionFile(path)
+	if err != nil {
+		t.Fatalf("acquireConnectionFile: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	info := ConnectionInfo{PID: os.Getpid(), Port: 12345, BaseURL: "http://127.0.0.1:12345", Token: "secret", APIVersion: APIVersion}
+	if err := writeConnectionInfo(f, info); err != nil {
 		t.Fatalf("writeConnectionInfo: %v", err)
 	}
+
 	fi, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("stat: %v", err)
@@ -31,49 +41,71 @@ func TestWriteAndReadConnectionInfoRoundTrip(t *testing.T) {
 	}
 }
 
-func TestCheckNoOtherInstanceAllowsStaleFile(t *testing.T) {
+func TestAcquireConnectionFileRejectsConcurrentInstance(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	// A PID essentially guaranteed not to be a live process on this machine.
-	if _, err := writeConnectionInfo(ConnectionInfo{PID: 1 << 30, Port: 1}); err != nil {
-		t.Fatalf("writeConnectionInfo: %v", err)
-	}
-	if err := checkNoOtherInstance(); err != nil {
-		t.Fatalf("checkNoOtherInstance with a stale (dead-pid) file: %v", err)
-	}
-}
-
-func TestCheckNoOtherInstanceRejectsLiveProcess(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	if _, err := writeConnectionInfo(ConnectionInfo{PID: os.Getpid(), Port: 1}); err != nil {
-		t.Fatalf("writeConnectionInfo: %v", err)
-	}
-	if err := checkNoOtherInstance(); err == nil {
-		t.Fatal("expected an error when the connection file names this (live) process")
-	}
-}
-
-func TestCheckNoOtherInstanceAllowsMissingFile(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	if err := checkNoOtherInstance(); err != nil {
-		t.Fatalf("checkNoOtherInstance with no file yet: %v", err)
-	}
-}
-
-func TestRemoveOwnConnectionFileOnlyRemovesMatchingPID(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	path, err := writeConnectionInfo(ConnectionInfo{PID: 999999, Port: 1})
+	path, err := connectionFilePath()
 	if err != nil {
-		t.Fatalf("writeConnectionInfo: %v", err)
+		t.Fatalf("connectionFilePath: %v", err)
 	}
 
-	removeOwnConnectionFile(path, os.Getpid()) // different PID: must not remove
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("file was removed despite PID mismatch: %v", err)
+	first, err := acquireConnectionFile(path)
+	if err != nil {
+		t.Fatalf("first acquireConnectionFile: %v", err)
+	}
+	defer func() { _ = first.Close() }()
+
+	if _, err := acquireConnectionFile(path); err == nil {
+		t.Fatal("expected a second acquireConnectionFile on the same path to fail while the first is held")
+	}
+}
+
+func TestAcquireConnectionFileSucceedsAfterRelease(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	path, err := connectionFilePath()
+	if err != nil {
+		t.Fatalf("connectionFilePath: %v", err)
 	}
 
-	removeOwnConnectionFile(path, 999999) // matching PID: should remove
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("expected file to be removed, stat err = %v", err)
+	first, err := acquireConnectionFile(path)
+	if err != nil {
+		t.Fatalf("first acquireConnectionFile: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	second, err := acquireConnectionFile(path)
+	if err != nil {
+		t.Fatalf("second acquireConnectionFile after release: %v", err)
+	}
+	_ = second.Close()
+}
+
+func TestAcquireConnectionFileEnforcesModeOnPreexistingFile(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	path, err := connectionFilePath()
+	if err != nil {
+		t.Fatalf("connectionFilePath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("seeding a pre-existing 0644 file: %v", err)
+	}
+
+	f, err := acquireConnectionFile(path)
+	if err != nil {
+		t.Fatalf("acquireConnectionFile: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("perm = %o, want acquireConnectionFile to enforce 0600 even on a pre-existing file", perm)
 	}
 }
 

@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -177,5 +178,116 @@ func TestClassifyErrorFromCLIError(t *testing.T) {
 	snap := waitTerminal(t, job, time.Second)
 	if snap.Error == nil || snap.Error.Kind != "unreachable" || snap.Error.Message != "no route to host" {
 		t.Fatalf("error = %#v, want kind unreachable / message no route to host", snap.Error)
+	}
+}
+
+func TestSubmitFailureFromNonCLIErrorIsSanitized(t *testing.T) {
+	m := NewManager(1)
+	job, err := m.Submit("deck-1", "deploy", func(ctx context.Context, report func(string)) error {
+		return fmt.Errorf("uv run failed: exit status 1\nstderr: ssh: connect to host 10.0.0.5 user root key /home/alice/.ssh/id_devkit")
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	snap := waitTerminal(t, job, time.Second)
+	if snap.Error == nil {
+		t.Fatal("expected an error")
+	}
+	if snap.Error.Message == "" || snap.Error.Message == "uv run failed: exit status 1\nstderr: ssh: connect to host 10.0.0.5 user root key /home/alice/.ssh/id_devkit" {
+		t.Fatalf("raw subprocess error leaked through the API: %q", snap.Error.Message)
+	}
+}
+
+func TestCancelDuringRunClassifiesAsCancelledRegardlessOfErrShape(t *testing.T) {
+	m := NewManager(1)
+	job, err := m.Submit("deck-1", "deploy", func(ctx context.Context, report func(string)) error {
+		<-ctx.Done()
+		// A real client.Client cancellation kills a subprocess and returns
+		// a wrapped process error, not context.Canceled itself (see
+		// internal/client/process_unix.go) — simulate that shape here.
+		return fmt.Errorf("uv run failed: signal: killed")
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for job.Snapshot().Status != Running {
+		if time.Now().After(deadline) {
+			t.Fatal("job never reached running")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := m.Cancel(job.ID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	snap := waitTerminal(t, job, time.Second)
+	if snap.Status != Cancelled {
+		t.Fatalf("status = %s, want cancelled even though the run error wasn't context.Canceled", snap.Status)
+	}
+}
+
+func TestShutdownCancelsRunningJobsAndWaits(t *testing.T) {
+	m := NewManager(1)
+	started := make(chan struct{})
+	job, err := m.Submit("deck-1", "deploy", func(ctx context.Context, report func(string)) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	<-started
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := m.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if snap := job.Snapshot(); snap.Status != Cancelled {
+		t.Fatalf("status = %s, want cancelled", snap.Status)
+	}
+}
+
+func TestShutdownTimesOutIfAJobIgnoresCancellation(t *testing.T) {
+	m := NewManager(1)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release) // let the goroutine exit after the test observes the timeout
+	if _, err := m.Submit("deck-1", "deploy", func(ctx context.Context, report func(string)) error {
+		close(started)
+		<-release
+		return nil
+	}); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	<-started
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := m.Shutdown(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown error = %v, want context.DeadlineExceeded", err)
+	}
+}
+
+func TestPruneEvictsOldestTerminalJobsBeyondCap(t *testing.T) {
+	m := NewManager(50)
+	total := maxRetainedJobs + 5
+	ids := make([]string, 0, total)
+	for i := 0; i < total; i++ {
+		device := fmt.Sprintf("dev-%d", i)
+		job, err := m.Submit(device, "deploy", func(ctx context.Context, report func(string)) error { return nil })
+		if err != nil {
+			t.Fatalf("Submit %d: %v", i, err)
+		}
+		waitTerminal(t, job, time.Second)
+		ids = append(ids, job.ID)
+	}
+
+	if _, err := m.Get(ids[0]); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("oldest job should have been pruned once the cap was exceeded, got err=%v", err)
+	}
+	if _, err := m.Get(ids[len(ids)-1]); err != nil {
+		t.Fatalf("newest job should still be retained: %v", err)
 	}
 }

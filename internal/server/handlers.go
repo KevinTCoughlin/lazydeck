@@ -5,12 +5,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
+	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/kevintcoughlin/lazydeck/internal/client"
 	"github.com/kevintcoughlin/lazydeck/internal/jobs"
 )
+
+// Operation-specific job deadlines, matching the TUI's own constants
+// (internal/tui/tui.go) rather than internal/client's 60s fallback timeout,
+// which only exists for callers that don't set a deadline of their own.
+const (
+	deployTimeout   = 10 * time.Minute
+	logsSyncTimeout = 2 * time.Minute
+)
+
+// maxDiscoverTimeoutSeconds bounds a caller-supplied discover timeout so a
+// request can't ask this process to hang around browsing mDNS indefinitely
+// (or hand a negative/absurdly large value down to time.Duration, which a
+// bare float64->Duration conversion would accept without complaint).
+const maxDiscoverTimeoutSeconds = 300
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "api_version": APIVersion})
@@ -63,8 +80,12 @@ type discoverRequest struct {
 
 func (s *Server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	var req discoverRequest
-	if err := decodeJSONBody(r, &req); err != nil {
+	if err := decodeJSONBody(w, r, &req); err != nil {
 		writeError(w, "invalid-input", err.Error())
+		return
+	}
+	if req.TimeoutSeconds < 0 || req.TimeoutSeconds > maxDiscoverTimeoutSeconds {
+		writeError(w, "invalid-input", fmt.Sprintf("timeout_seconds must be between 0 and %d", maxDiscoverTimeoutSeconds))
 		return
 	}
 	timeout := 5 * time.Second
@@ -118,6 +139,33 @@ func (s *Server) handleGames(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"games": games})
 }
 
+// gameIDPattern matches the game_id values this API accepts: it must start
+// with an alphanumeric character (never '-', which cli.py's argparse could
+// mistake for a flag) and stay within a sane length, ruling out control
+// characters, whitespace, path separators, and the pathological inputs a
+// naive non-empty check would let through all the way to an accepted 202
+// before the async job later reports invalid-input.
+var gameIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+func validateGameID(id string) error {
+	if !gameIDPattern.MatchString(id) {
+		return errors.New("game_id must start with a letter or digit and contain only letters, digits, '.', '_', or '-' (max 128 characters)")
+	}
+	return nil
+}
+
+// validateDirectory requires an absolute path. internal/client's run()
+// invokes cli.py with cmd.Dir set to the bundled Python runtime's directory
+// (see internal/client/client.go), not this process's working directory or
+// the caller's, so a relative path here would resolve somewhere the API
+// caller never intended.
+func validateDirectory(dir string) error {
+	if !filepath.IsAbs(dir) {
+		return errors.New("directory must be an absolute path")
+	}
+	return nil
+}
+
 type deployRequest struct {
 	GameID           string `json:"game_id"`
 	Directory        string `json:"directory"`
@@ -130,16 +178,22 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req deployRequest
-	if err := decodeJSONBody(r, &req); err != nil {
+	if err := decodeJSONBody(w, r, &req); err != nil {
 		writeError(w, "invalid-input", err.Error())
 		return
 	}
-	if req.GameID == "" || req.Directory == "" {
-		writeError(w, "invalid-input", "game_id and directory are required")
+	if err := validateGameID(req.GameID); err != nil {
+		writeError(w, "invalid-input", err.Error())
+		return
+	}
+	if err := validateDirectory(req.Directory); err != nil {
+		writeError(w, "invalid-input", err.Error())
 		return
 	}
 
 	job, err := s.jobs.Submit(d.Name, "deploy", func(ctx context.Context, report func(string)) error {
+		ctx, cancel := context.WithTimeout(ctx, deployTimeout)
+		defer cancel()
 		report("deploying to " + d.Name)
 		return s.client.Deploy(ctx, d.Machine, d.Login, req.GameID, req.Directory, req.DeleteExtraneous)
 	})
@@ -150,6 +204,12 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job.Snapshot()})
 }
 
+// logsSyncRequest's GameID is accepted for forward compatibility but
+// currently unused: the vendored devkit_client.sync_logs (see
+// python/vendor/devkit_client/__init__.py) always pulls the complete
+// ~/.local/share/Steam/logs and minidump directories regardless of any
+// game name, so this operation cannot filter by title yet. It is therefore
+// optional here rather than required, unlike deploy's game_id.
 type logsSyncRequest struct {
 	GameID    string `json:"game_id"`
 	Directory string `json:"directory"`
@@ -161,16 +221,24 @@ func (s *Server) handleLogsSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req logsSyncRequest
-	if err := decodeJSONBody(r, &req); err != nil {
+	if err := decodeJSONBody(w, r, &req); err != nil {
 		writeError(w, "invalid-input", err.Error())
 		return
 	}
-	if req.GameID == "" || req.Directory == "" {
-		writeError(w, "invalid-input", "game_id and directory are required")
+	if req.GameID != "" {
+		if err := validateGameID(req.GameID); err != nil {
+			writeError(w, "invalid-input", err.Error())
+			return
+		}
+	}
+	if err := validateDirectory(req.Directory); err != nil {
+		writeError(w, "invalid-input", err.Error())
 		return
 	}
 
 	job, err := s.jobs.Submit(d.Name, "logs-sync", func(ctx context.Context, report func(string)) error {
+		ctx, cancel := context.WithTimeout(ctx, logsSyncTimeout)
+		defer cancel()
 		report("syncing logs from " + d.Name)
 		return s.client.SyncLogs(ctx, d.Machine, d.Login, req.GameID, req.Directory)
 	})
@@ -267,30 +335,48 @@ func writeSSEEvent(w http.ResponseWriter, e jobs.Event) error {
 	return err
 }
 
-// decodeJSONBody decodes a JSON request body, tolerating an empty body as
-// a zero-value v (several requests, like discover, have every field
-// optional).
-func decodeJSONBody(r *http.Request, v any) error {
+// maxRequestBodyBytes bounds every request body this API decodes. These
+// requests are all small, fixed-shape JSON objects; there is no legitimate
+// case for a multi-megabyte body, so this is generous headroom against an
+// authenticated-but-misbehaving local client rather than a tight limit.
+const maxRequestBodyBytes = 1 << 20 // 1 MiB
+
+// decodeJSONBody decodes a single JSON value from the request body,
+// tolerating an empty body as a zero-value v (several requests, like
+// discover, have every field optional). It bounds the body size and
+// rejects anything beyond that one JSON value — concatenated JSON or other
+// trailing non-whitespace data — so a request can't be accepted on the
+// strength of a valid-looking prefix while carrying unexamined extra data.
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) error {
 	if r.ContentLength == 0 {
 		return nil
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(v); err != nil {
 		return fmt.Errorf("decoding request body: %w", err)
 	}
+	if dec.More() {
+		return errors.New("request body must contain a single JSON value")
+	}
 	return nil
 }
 
-// writeClientError translates an internal/client error (typically a
-// *client.CLIError with a Kind, or a plain error from a failed uv/ssh
-// invocation) into the API's typed error envelope.
+// writeClientError translates an internal/client error into the API's
+// typed error envelope. A *client.CLIError's Message is already curated by
+// cli.py for the "error" field of its JSON envelope, so it's safe to pass
+// through; anything else (a failed `uv run` invocation, malformed cli.py
+// output) can carry raw subprocess stdout/stderr — potentially SSH paths,
+// hostnames, or other process output — so that case is logged locally and
+// replaced with a stable, generic message instead of being echoed back.
 func writeClientError(w http.ResponseWriter, err error) {
 	var cliErr *client.CLIError
 	if errors.As(err, &cliErr) {
 		writeError(w, cliErr.Kind, cliErr.Message)
 		return
 	}
-	writeError(w, "unknown", err.Error())
+	log.Printf("devkit operation failed with an unclassified error: %v", err)
+	writeError(w, "unknown", "the devkit operation failed unexpectedly; see the lazydeck serve process log for details")
 }
 
 func writeSubmitError(w http.ResponseWriter, err error) {

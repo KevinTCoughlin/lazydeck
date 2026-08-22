@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -184,14 +185,22 @@ func (j *Job) Progress(message string) {
 // report progress (optionally) through report.
 type Run func(ctx context.Context, report func(message string)) error
 
+// maxRetainedJobs bounds how many jobs a Manager keeps once they've
+// finished, so a long-lived `serve` process's job history doesn't grow
+// without bound as deploys and log-syncs accumulate. Queued/running jobs
+// are never evicted regardless of this cap.
+const maxRetainedJobs = 500
+
 // Manager runs submitted jobs with per-device serialization and bounded
 // global concurrency, per #13's job model.
 type Manager struct {
 	maxConcurrent int
 	sem           chan struct{}
+	wg            sync.WaitGroup // tracks every execute() goroutine, for Shutdown
 
 	mu         sync.Mutex
 	jobs       map[string]*Job
+	jobOrder   []string          // job IDs in creation order, for retention pruning
 	deviceBusy map[string]string // deviceID -> occupying job ID
 }
 
@@ -235,14 +244,39 @@ func (m *Manager) Submit(deviceID, operation string, run Run) (*Job, error) {
 		cancel:    cancel,
 	}
 	m.jobs[id] = job
+	m.jobOrder = append(m.jobOrder, id)
 	m.deviceBusy[deviceID] = id
+	m.pruneLocked()
 	m.mu.Unlock()
 
+	m.wg.Add(1)
 	go m.execute(ctx, job, run)
 	return job, nil
 }
 
+// pruneLocked evicts the oldest terminal jobs once more than
+// maxRetainedJobs are retained. Must be called with m.mu held.
+func (m *Manager) pruneLocked() {
+	toRemove := len(m.jobOrder) - maxRetainedJobs
+	if toRemove <= 0 {
+		return
+	}
+	kept := make([]string, 0, len(m.jobOrder))
+	for _, id := range m.jobOrder {
+		if toRemove > 0 {
+			if job, ok := m.jobs[id]; ok && job.Snapshot().Status.terminal() {
+				delete(m.jobs, id)
+				toRemove--
+				continue
+			}
+		}
+		kept = append(kept, id)
+	}
+	m.jobOrder = kept
+}
+
 func (m *Manager) execute(ctx context.Context, job *Job, run Run) {
+	defer m.wg.Done()
 	defer m.releaseDevice(job.DeviceID)
 
 	select {
@@ -253,16 +287,59 @@ func (m *Manager) execute(ctx context.Context, job *Job, run Run) {
 		return
 	}
 
+	// The semaphore send and ctx.Done() above race when both are ready at
+	// once (select among ready cases is pseudo-random), so a job cancelled
+	// at that exact instant could still win the slot. Recheck ctx.Err()
+	// before doing anything observable.
+	if ctx.Err() != nil {
+		job.markFinished(Cancelled, "cancelled while queued", nil)
+		return
+	}
+
 	job.markStarted()
 	err := run(ctx, job.Progress)
 
+	// ctx.Err() is authoritative for cancellation: a real client.Client
+	// operation cancelled mid-run kills the uv/ssh process group (see
+	// internal/client/process_unix.go) and returns a wrapped process error,
+	// not context.Canceled, so branching on err's shape alone would
+	// misreport a cancelled deploy as failed.
 	switch {
+	case ctx.Err() != nil:
+		job.markFinished(Cancelled, "cancelled", nil)
 	case err == nil:
 		job.markFinished(Succeeded, "completed", nil)
-	case errors.Is(err, context.Canceled):
-		job.markFinished(Cancelled, "cancelled", nil)
 	default:
 		job.markFinished(Failed, "failed", classifyError(err))
+	}
+}
+
+// Shutdown cancels every tracked job (a no-op on ones already terminal)
+// and waits for their goroutines to finish, or for ctx to expire first.
+// Callers (server.Run on process shutdown) use this so in-flight deploy/
+// log-sync subprocess work is cancelled and awaited rather than left
+// running detached after the serve process has already exited.
+func (m *Manager) Shutdown(ctx context.Context) error {
+	m.mu.Lock()
+	jobs := make([]*Job, 0, len(m.jobs))
+	for _, j := range m.jobs {
+		jobs = append(jobs, j)
+	}
+	m.mu.Unlock()
+	for _, j := range jobs {
+		j.cancel()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -276,12 +353,20 @@ func (m *Manager) releaseDevice(deviceID string) {
 // (*client.CLIError does), defaulting to "unknown" so every job failure has
 // a machine-readable kind, never just free text a caller would have to
 // pattern-match.
+//
+// Anything that isn't a *client.CLIError (a failed `uv run` invocation, or
+// malformed cli.py output) can carry raw subprocess stdout/stderr —
+// potentially SSH paths, hostnames, or other process output — so it must
+// not be echoed back through the API/SSE verbatim. That case is logged
+// locally for an operator to see and replaced with a stable, generic
+// message instead.
 func classifyError(err error) *Error {
 	var cliErr *client.CLIError
 	if errors.As(err, &cliErr) {
 		return &Error{Kind: cliErr.Kind, Message: cliErr.Message}
 	}
-	return &Error{Kind: "unknown", Message: err.Error()}
+	log.Printf("job failed with an unclassified error: %v", err)
+	return &Error{Kind: "unknown", Message: "the devkit operation failed unexpectedly; see the lazydeck serve process log for details"}
 }
 
 // Get returns the job with the given ID, or ErrNotFound.

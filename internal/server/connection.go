@@ -2,11 +2,9 @@ package server
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 // ConnectionInfo is what `lazydeck serve` writes to disk so an engine
@@ -39,28 +37,60 @@ func connectionFilePath() (string, error) {
 	return filepath.Join(dir, "lazydeck", "serve.json"), nil
 }
 
-// writeConnectionInfo persists info to the connection file with 0600
-// permissions (it contains the bearer token) and returns the path written.
-func writeConnectionInfo(info ConnectionInfo) (string, error) {
-	path, err := connectionFilePath()
-	if err != nil {
-		return "", err
-	}
+// acquireConnectionFile opens path (creating it if needed) and takes an
+// exclusive, non-blocking OS file lock on it for the life of the returned
+// *os.File, so a second `lazydeck serve` can never race the first to bind a
+// port and overwrite the connection file: unlike a check-then-act PID
+// liveness check (this file's previous approach), the lock is held
+// atomically by the OS and is automatically released if this process dies
+// or is killed, with no staleness heuristic required. Callers must Close
+// the returned file (which releases the lock) when the server shuts down.
+func acquireConnectionFile(path string) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
+		return nil, fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
 	}
-	data, err := json.MarshalIndent(info, "", "  ")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("opening %s: %w", path, err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return "", fmt.Errorf("writing %s: %w", path, err)
+	if err := lockExclusiveNonblocking(f); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("lazydeck serve is already running (connection file: %s): %w", path, err)
 	}
-	return path, nil
+	// The file may have pre-existed with a different mode (e.g. from a
+	// build before this file held a bearer token); enforce 0600 now that
+	// we hold the lock, since O_CREATE's mode argument only applies when
+	// the file is newly created.
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("chmod %s: %w", path, err)
+	}
+	return f, nil
 }
 
-// readConnectionInfo reads a previously written connection file, used to
-// detect a still-running `lazydeck serve` before starting a second one.
+// writeConnectionInfo overwrites f's contents with info, encoded as JSON.
+// f must already be open for writing (see acquireConnectionFile) and is
+// truncated and rewritten from offset 0 in place: since f is a single
+// already-locked, already-0600 file descriptor for the whole server
+// lifetime, there's no separate temp file to make atomic — the lock itself
+// is what a concurrent reader/writer must respect.
+func writeConnectionInfo(f *os.File, info ConnectionInfo) error {
+	data, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := f.Truncate(0); err != nil {
+		return fmt.Errorf("truncating connection file: %w", err)
+	}
+	if _, err := f.WriteAt(data, 0); err != nil {
+		return fmt.Errorf("writing connection file: %w", err)
+	}
+	return f.Sync()
+}
+
+// readConnectionInfo reads a previously written connection file. Used by
+// tests to verify what acquireConnectionFile/writeConnectionInfo produced;
+// a real engine-plugin reader lives outside this Go codebase.
 func readConnectionInfo(path string) (ConnectionInfo, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -71,44 +101,4 @@ func readConnectionInfo(path string) (ConnectionInfo, error) {
 		return ConnectionInfo{}, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	return info, nil
-}
-
-// processAlive reports whether pid names a live process on this machine,
-// used to tell a genuinely running `lazydeck serve` apart from a stale
-// connection file left behind by one that crashed or was killed.
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	// Signal 0 performs no-op existence/permission checks without actually
-	// sending a signal; this only works on Unix, which matches the rest of
-	// the codebase's process-group handling (see internal/client/process_unix.go).
-	err = proc.Signal(syscall.Signal(0))
-	return err == nil
-}
-
-// checkNoOtherInstance errors out if the connection file names a PID that is
-// still alive, so two `lazydeck serve` instances never race to write the
-// same file or bind overlapping state. A stale file (dead PID, or unreadable
-// because it doesn't exist yet) is not an error.
-func checkNoOtherInstance() error {
-	path, err := connectionFilePath()
-	if err != nil {
-		return err
-	}
-	info, err := readConnectionInfo(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return nil // unreadable/corrupt connection file: treat as stale, not fatal
-	}
-	if processAlive(info.PID) {
-		return fmt.Errorf("lazydeck serve already running as pid %d on port %d (connection file: %s)", info.PID, info.Port, path)
-	}
-	return nil
 }

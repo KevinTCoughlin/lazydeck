@@ -13,11 +13,11 @@ info:
     internal/server implements it. Routes not described here (e.g. a future
     /v2) are out of scope for this file.
 
-    Launch and stop are intentionally absent from the paths below: they are
-    reachable at POST /v1/devices/{deviceId}/games/{gameId}/launch and
-    .../stop, but always return 501 with error kind "unsupported" in this
-    version, because python/cli.py has no launch/stop primitive yet. Check
-    GET /v1/capabilities before calling them.
+    launch and stop are included below as routes (POST
+    /v1/devices/{deviceId}/games/{gameId}/launch and .../stop), so their URL
+    shape is stable, but both always return 501 with error kind
+    "unsupported" in this version, because python/cli.py has no launch/stop
+    primitive yet. Check GET /v1/capabilities before calling them.
 servers:
   - url: http://127.0.0.1:{port}
     description: >-
@@ -92,6 +92,8 @@ paths:
                   type: number
                   format: float
                   default: 5
+                  minimum: 0
+                  maximum: 300
                   description: How long to browse before returning whatever was found.
       responses:
         "200":
@@ -105,6 +107,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/DiscoveredDevice"
+        "400":
+          $ref: "#/components/responses/InvalidInput"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "502":
@@ -196,10 +200,19 @@ paths:
               type: object
               required: [game_id, directory]
               properties:
-                game_id: { type: string }
+                game_id:
+                  type: string
+                  pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+                  description: >-
+                    Must start with a letter or digit and contain only
+                    letters, digits, '.', '_', or '-' (max 128 characters).
                 directory:
                   type: string
-                  description: Absolute path to the exported build on this workstation.
+                  description: >-
+                    Absolute path to the exported build on this workstation.
+                    A relative path is rejected: it would otherwise resolve
+                    against the bundled Python runtime's directory, not
+                    this workstation's filesystem as the caller intends.
                 delete_extraneous:
                   type: boolean
                   default: false
@@ -225,7 +238,7 @@ paths:
 
   /v1/devices/{deviceId}/logs/sync:
     post:
-      summary: Pull a title's logs down into a local directory, as an async job.
+      summary: Pull the device's Steam logs and minidumps into a local directory, as an async job.
       operationId: syncLogs
       parameters:
         - $ref: "#/components/parameters/DeviceId"
@@ -235,12 +248,23 @@ paths:
           application/json:
             schema:
               type: object
-              required: [game_id, directory]
+              required: [directory]
               properties:
-                game_id: { type: string }
+                game_id:
+                  type: string
+                  pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+                  description: >-
+                    Accepted for forward compatibility but currently
+                    unused: this operation always fetches the device's
+                    complete ~/.local/share/Steam/logs and minidump
+                    directories regardless of this value — it cannot yet
+                    filter by title. Optional; omit it.
                 directory:
                   type: string
-                  description: Local directory to sync logs into.
+                  description: >-
+                    Absolute local directory to sync logs into. A relative
+                    path is rejected — see the deployments endpoint's
+                    `directory` field for why.
       responses:
         "202":
           description: Log sync accepted and queued.

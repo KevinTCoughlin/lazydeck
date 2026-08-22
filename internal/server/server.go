@@ -54,6 +54,12 @@ const APIVersion = "v1"
 // user-configurable — revisit if fleets large enough to need tuning show up.
 const maxConcurrentJobs = 4
 
+// shutdownBudget bounds how long Run waits, in total, for the HTTP server's
+// graceful shutdown and then for in-flight jobs to actually cancel their
+// SSH/rsync subprocess (see internal/client/process_unix.go's own 10s
+// WaitDelay backstop) before Run returns anyway.
+const shutdownBudget = 30 * time.Second
+
 // Server holds the dependencies HTTP handlers need: the existing Python
 // bridge client, the configured device list, and the job manager.
 type Server struct {
@@ -63,14 +69,25 @@ type Server struct {
 	token  string
 }
 
-// New builds a Server. token authenticates every /v1/ request.
-func New(cli devkitClient, cfg *config.Config, token string) *Server {
+// New builds a Server. token authenticates every /v1/ request. It errors if
+// cfg's devices don't have unique names: config.Load accepts hand-edited
+// TOML with duplicate [[device]] names, but the API treats Device.Name as
+// the device's stable ID (see findDevice), so a duplicate would make
+// /v1/devices report two IDs that both silently resolve to the first match.
+func New(cli devkitClient, cfg *config.Config, token string) (*Server, error) {
+	seen := make(map[string]bool, len(cfg.Devices))
+	for _, d := range cfg.Devices {
+		if seen[d.Name] {
+			return nil, fmt.Errorf("devices.toml has more than one device named %q; device names must be unique to be addressable through the API", d.Name)
+		}
+		seen[d.Name] = true
+	}
 	return &Server{
 		client: cli,
 		cfg:    cfg,
 		jobs:   jobs.NewManager(maxConcurrentJobs),
 		token:  token,
-	}
+	}, nil
 }
 
 // Handler returns the full HTTP handler: routing plus the bearer-auth
@@ -94,7 +111,60 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/jobs/{id}/events", s.handleJobEvents)
 	mux.HandleFunc("DELETE /v1/jobs/{id}", s.handleCancelJob)
 
-	return s.withAuth(mux)
+	return s.withAuth(jsonNotFoundHandler(mux))
+}
+
+// jsonNotFoundHandler wraps next so an unmatched route or disallowed
+// method gets the API's structured JSON error envelope instead of
+// net/http's plain-text default body: every documented /v1 response is
+// JSON, and a client that hit a typo'd path deserves the same machine-
+// readable {"error": {...}} shape as every other error.
+func jsonNotFoundHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(&jsonErrorInterceptor{ResponseWriter: w}, r)
+	})
+}
+
+// jsonErrorInterceptor swallows a plain-text 404/405 body from the wrapped
+// handler and substitutes writeErrorStatus's JSON envelope instead; any
+// other status passes through untouched.
+type jsonErrorInterceptor struct {
+	http.ResponseWriter
+	status  int
+	handled bool
+}
+
+func (w *jsonErrorInterceptor) WriteHeader(status int) {
+	if status == http.StatusNotFound || status == http.StatusMethodNotAllowed {
+		w.status = status
+		return
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *jsonErrorInterceptor) Write(b []byte) (int, error) {
+	if w.status == http.StatusNotFound || w.status == http.StatusMethodNotAllowed {
+		if !w.handled {
+			w.handled = true
+			kind := "not-found"
+			if w.status == http.StatusMethodNotAllowed {
+				kind = "invalid-input"
+			}
+			writeErrorStatus(w.ResponseWriter, w.status, kind, http.StatusText(w.status))
+		}
+		return len(b), nil
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// Flush lets handleJobEvents's `w.(http.Flusher)` assertion keep working
+// through this wrapper: embedding http.ResponseWriter alone hides the
+// underlying writer's Flusher behind jsonErrorInterceptor's own type, which
+// would otherwise silently break SSE streaming for every route.
+func (w *jsonErrorInterceptor) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // withAuth requires "Authorization: Bearer <token>" on every request. The
@@ -139,11 +209,25 @@ func (s *Server) deviceOr404(w http.ResponseWriter, r *http.Request) (config.Dev
 // Run starts `lazydeck serve`: binds an ephemeral loopback port, writes the
 // connection file engine plugins read to discover it (see connection.go),
 // and serves until ctx is cancelled, at which point it shuts down
-// gracefully and removes the connection file it owns.
+// gracefully — including cancelling and awaiting any in-flight jobs — and
+// removes the connection file it owns.
 func Run(ctx context.Context, cli devkitClient, cfg *config.Config) error {
-	if err := checkNoOtherInstance(); err != nil {
+	connPath, err := connectionFilePath()
+	if err != nil {
 		return err
 	}
+	connFile, err := acquireConnectionFile(connPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// Remove while still holding the lock, then close (which releases
+		// it): a concurrent `serve` can only ever open+lock this path after
+		// we release it, so this can never delete a different, legitimate
+		// instance's connection file out from under it.
+		_ = os.Remove(connPath)
+		_ = connFile.Close()
+	}()
 
 	token, err := generateToken()
 	if err != nil {
@@ -163,12 +247,10 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config) error {
 		Token:      token,
 		APIVersion: APIVersion,
 	}
-	connPath, err := writeConnectionInfo(info)
-	if err != nil {
+	if err := writeConnectionInfo(connFile, info); err != nil {
 		_ = listener.Close()
 		return err
 	}
-	defer removeOwnConnectionFile(connPath, info.PID)
 
 	// The token itself is deliberately not printed: it lives only in the
 	// 0600 connection file, so it never lands in shell scrollback, a
@@ -176,8 +258,13 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config) error {
 	// stdout.
 	fmt.Printf("lazydeck serve: listening on %s (connection file: %s)\n", info.BaseURL, connPath)
 
+	apiServer, err := New(cli, cfg, token)
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
 	srv := &http.Server{
-		Handler:           New(cli, cfg, token).Handler(),
+		Handler:           apiServer.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -191,25 +278,18 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config) error {
 		}
 		return nil
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownBudget)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("lazydeck serve: graceful shutdown failed: %v", err)
+			log.Printf("lazydeck serve: graceful HTTP shutdown failed: %v", err)
+		}
+		// Cancel and wait for in-flight jobs even if HTTP shutdown above
+		// didn't finish cleanly: otherwise a deploy's rsync/ssh could keep
+		// running detached after this process has already returned/exited.
+		if err := apiServer.jobs.Shutdown(shutdownCtx); err != nil {
+			log.Printf("lazydeck serve: in-flight job(s) did not finish before shutdown timed out: %v", err)
 			return err
 		}
 		return nil
 	}
-}
-
-// removeOwnConnectionFile deletes the connection file only if it still
-// names this process's PID, so a second `lazydeck serve` that failed
-// checkNoOtherInstance's race window (vanishingly unlikely, but cheap to
-// guard) can never have the first instance's clean shutdown delete the
-// second instance's live connection file out from under it.
-func removeOwnConnectionFile(path string, pid int) {
-	info, err := readConnectionInfo(path)
-	if err != nil || info.PID != pid {
-		return
-	}
-	_ = os.Remove(path)
 }
