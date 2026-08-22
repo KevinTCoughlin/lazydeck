@@ -17,6 +17,7 @@ import (
 	"github.com/kevintcoughlin/lazydeck/internal/client"
 	"github.com/kevintcoughlin/lazydeck/internal/config"
 	"github.com/kevintcoughlin/lazydeck/internal/fixture"
+	mcpserver "github.com/kevintcoughlin/lazydeck/internal/mcp"
 	"github.com/kevintcoughlin/lazydeck/internal/server"
 	"github.com/kevintcoughlin/lazydeck/internal/tui"
 )
@@ -42,6 +43,12 @@ func main() {
 			return
 		case "serve":
 			if err := runServe(hasFlag(os.Args[2:], "--fixture")); err != nil {
+				fmt.Fprintln(os.Stderr, "lazydeck:", err)
+				os.Exit(1)
+			}
+			return
+		case "mcp":
+			if err := runMCP(hasFlag(os.Args[2:], "--fixture"), hasFlag(os.Args[2:], "--allow-mutations")); err != nil {
 				fmt.Fprintln(os.Stderr, "lazydeck:", err)
 				os.Exit(1)
 			}
@@ -102,6 +109,17 @@ Usage:
                       real Steam Deck/Steam Machine is reachable. Shape its
                       behavior with LAZYDECK_FIXTURE_* env vars; see
                       internal/fixture's package doc.
+  lazydeck mcp        Run a Model Context Protocol server over stdio for
+                      LLM agents (Claude Desktop, VS Code Copilot, etc.),
+                      wrapping the same API as the Godot/Unity integrations.
+                      Discovers or auto-starts lazydeck serve as needed.
+                      Read-only by default; see docs/mcp.md.
+  lazydeck mcp --allow-mutations
+                      Also register tools that change device/job state
+                      (deploy, pair, sync-logs, cancel-job, launch, stop).
+  lazydeck mcp --fixture
+                      If lazydeck mcp needs to auto-start lazydeck serve,
+                      run it with --fixture (see above).
   lazydeck version    Print version and build metadata.
   lazydeck help       Show this help.
 
@@ -111,6 +129,11 @@ Environment:
   LAZYDECK_UV          Path to the uv executable (auto-detected by default).
   LAZYDECK_SSH_STRICT  Set to 1 to refuse connecting when a devkit's SSH
                        host key changes (default: trust-on-first-use).
+  LAZYDECK_AUTOSTART   Set to 0 to disable lazydeck mcp's (and the
+                       Godot/Unity integrations') auto-start of
+                       lazydeck serve when no instance is running.
+  LAZYDECK_BIN         Executable lazydeck mcp auto-starts as
+                       lazydeck serve (default: this same binary).
 
 See README.md for configuration and the LAN SSH trust model.
 `)
@@ -190,4 +213,22 @@ func hasFlag(args []string, name string) bool {
 		}
 	}
 	return false
+}
+
+// runMCP starts `lazydeck mcp`: a Model Context Protocol server (see
+// internal/mcp's package doc) exposing lazydeck's devkit operations as
+// tools for LLM agents over stdio. It discovers or auto-starts `lazydeck
+// serve` the same way the Godot/Unity integrations do, then wraps its /v1
+// API as MCP tools; mutating tools (deploy, pair, sync-logs, ...) are only
+// registered when allowMutations is set, since an agent calling them is a
+// different trust model than a human clicking a button in an editor.
+func runMCP(useFixture, allowMutations bool) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	return mcpserver.Run(ctx, mcpserver.Options{
+		AllowMutations: allowMutations,
+		Version:        versionString(),
+		FixtureBackend: useFixture,
+	})
 }
