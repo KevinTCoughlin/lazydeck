@@ -89,7 +89,8 @@ else in it.
 The connect/devices/discover/pair sources compile without warnings
 against Unity 6.5's real managed editor assemblies.
 
-**The build/deploy/logs/cancel additions have not been compiled against
+**The build/deploy/logs/cancel additions, and `Editor/Api/ServerLauncher.cs`
+(auto-starting `lazydeck serve`), have not been compiled against
 anything.** They were written without a Unity Editor or any C# compiler
 available, so they carry the same caveat the connect slice originally
 did — see the note in issue #23. The pieces most worth checking first in
@@ -101,6 +102,9 @@ a real editor:
   `EditorApplication.update` rather than `Awaitable.WaitForSecondsAsync`
   precisely because frame-loop-driven awaits proved unreliable for an
   `EditorWindow` outside Play mode last time.
+- `ServerLauncher.StartIfNeeded`'s `Process.Start`/`ProcessStartInfo`
+  shape and its cross-thread `ConcurrentQueue` hand-off of the spawned
+  process's stderr back onto the main thread via `DrainMessages`.
 
 A full Editor run is also still outstanding: the available local Unity
 installation had no active Editor license, so it could recognize the
