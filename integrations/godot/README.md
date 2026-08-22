@@ -70,6 +70,13 @@ the job, and cancelled it. This validation used a fake unreachable
 device rather than real Steam hardware, so pairing and a successful
 upload still require hardware testing.
 
+**`api/server_launcher.gd` (auto-starting `lazydeck serve`) postdates
+that validation run and has not itself been exercised in a real
+editor.** It was checked with `gdformat`/`gdlint` only. The one thing
+most worth confirming first: `OS.create_process()`'s return value on
+both a successful spawn and a failed one (e.g. a missing executable),
+since that return value drives what the dock logs.
+
 ## How it finds `lazydeck serve`
 
 `api/connection_locator.gd` reads the same connection file
