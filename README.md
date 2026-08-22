@@ -284,6 +284,20 @@ first use. Changed keys warn by default so re-imaged devkits remain usable; set
 `LAZYDECK_SSH_STRICT=1` to reject changed keys. Verify changes out of band and
 pair only on a trusted LAN. See [SECURITY.md](SECURITY.md).
 
+## Engine integrations
+
+`lazydeck serve` (see [issue #13](https://github.com/kevintcoughlin/lazydeck/issues/13))
+exposes the same devkit operations above through a versioned, loopback-only
+HTTP+SSE API, so engine editors can drive them without shelling out to
+`lazydeck` or reimplementing the SteamOS Devkit protocol. See
+[`api/openapi.yaml`](api/openapi.yaml) for the contract.
+
+A Godot 4 editor plugin built on that API lives in
+[`integrations/godot`](integrations/godot) — run `lazydeck serve`, then
+enable the plugin to discover, pair, and inspect devkits from a dock in
+the editor. See that directory's README for current scope (connect +
+devices only, so far) and a runnable example project.
+
 ## Troubleshooting
 
 - **"could not locate a complete Python runtime"** — set `LAZYDECK_PYTHON_DIR`
