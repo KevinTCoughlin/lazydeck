@@ -1,0 +1,14 @@
+[Unit]
+Description=LazyDeck local engine-integration API
+Documentation=https://kevintcoughlin.com/lazydeck/api/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/lazydeck serve
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

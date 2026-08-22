@@ -16,7 +16,12 @@ just check   # CI-equivalent race, vet, lock, lint, and test checks
 Do not regenerate dependencies without committing the resulting `python/uv.lock`.
 Before opening a PR, run `just check`. CI repeats the checks on Linux and macOS,
 validates GoReleaser, rebuilds/runs both container stages (`ci` and
-`godot-integration`) for parity, and lints shell scripts.
+`godot-integration`) for parity, lints shell scripts, and installs the generated
+amd64 Debian package before smoke-testing its bundled runtime.
+
+Nix users can enter the pinned development environment with `nix develop`.
+The flake builds and wraps the Go binary with its bundled Python bridge and
+the Nix-provided `uv`, OpenSSH, and rsync executables.
 
 ## Project layout
 
@@ -97,6 +102,8 @@ architectures and verifies upstream checksums. Re-run
 updated `THIRD_PARTY_GO.md`. Do not edit generated notices manually.
 
 Report vulnerabilities privately as described in `SECURITY.md`.
+All community participation is governed by `CODE_OF_CONDUCT.md`; the current
+maintainer model is described in `GOVERNANCE.md`.
 
 ## Reporting issues
 

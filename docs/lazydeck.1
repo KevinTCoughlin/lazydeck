@@ -1,0 +1,66 @@
+.TH LAZYDECK 1 "2026-08-22" "lazydeck" "User Commands"
+.SH NAME
+lazydeck \- terminal UI and local API for Steam devkits
+.SH SYNOPSIS
+.B lazydeck
+.br
+.B lazydeck serve
+.RI [ --fixture ]
+.br
+.B lazydeck version
+.br
+.B lazydeck help
+.SH DESCRIPTION
+.B lazydeck
+is a terminal UI for pairing, inspecting, deploying to, and collecting logs
+from Steam Deck and Steam Machine devkits. It uses the SteamOS devkit protocol
+over the local network.
+.SH COMMANDS
+.TP
+.B lazydeck
+Start the interactive terminal UI.
+.TP
+.B lazydeck serve
+Start the local HTTP API used by the Godot and Unity editor integrations.
+The server publishes its authenticated connection file at
+.I $XDG_RUNTIME_DIR/lazydeck/serve.json
+on Linux.
+.TP
+.B lazydeck serve --fixture
+Start the API using an in-memory backend. This is intended for integration
+tests and does not connect to a Steam device.
+.TP
+.B lazydeck version
+Print version and build metadata.
+.TP
+.B lazydeck help
+Print command usage.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/lazydeck/devices.toml
+Configured Steam devkits. Defaults to
+.IR ~/.config/lazydeck/devices.toml .
+.TP
+.I $XDG_CONFIG_HOME/lazydeck/config.yml
+Optional custom TUI commands. Defaults to
+.IR ~/.config/lazydeck/config.yml .
+.TP
+.I $XDG_RUNTIME_DIR/lazydeck/serve.json
+Authenticated connection information for editor integrations. This file is
+created with mode 0600 and exists only for the desktop session.
+.SH ENVIRONMENT
+.TP
+.B LAZYDECK_PYTHON_DIR
+Override the bundled Python bridge location.
+.TP
+.B LAZYDECK_UV
+Override the uv executable used to run the Python bridge.
+.TP
+.B LAZYDECK_SSH_STRICT
+Set to 1 to reject changed Steam-devkit SSH host keys.
+.SH SEE ALSO
+.BR systemctl (1),
+.BR ssh (1),
+.BR rsync (1)
+.br
+https://github.com/KevinTCoughlin/lazydeck

@@ -112,6 +112,20 @@ jobs:
           distribution: goreleaser
           version: "2.17.1"
           args: release --snapshot --clean
+      - name: Install and smoke-test Debian package
+        run: |
+          package="$(find dist -maxdepth 1 -name '*_linux_amd64.deb' -print -quit)"
+          test -n "${package}"
+          dpkg-deb --contents "${package}" | grep -Fq './usr/share/man/man1/lazydeck.1'
+          dpkg-deb --contents "${package}" | grep -Fq './usr/share/bash-completion/completions/lazydeck'
+          dpkg-deb --contents "${package}" | grep -Fq './usr/share/zsh/vendor-completions/_lazydeck'
+          dpkg-deb --contents "${package}" | grep -Fq './usr/share/fish/vendor_completions.d/lazydeck.fish'
+          sudo apt-get update
+          sudo apt-get install --yes "${package}"
+          lazydeck version
+          test -f /usr/share/lazydeck/python/cli.py
+          test -x /usr/libexec/lazydeck/uv
+          test -f /usr/lib/systemd/user/lazydeck-serve.service
 
   shell:
     name: Shell scripts

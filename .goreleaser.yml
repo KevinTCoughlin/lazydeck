@@ -52,6 +52,11 @@ archives:
       - THIRD_PARTY_GO.md
       - CHANGELOG.md
       - justfile
+      - docs/lazydeck.1
+      - completions/lazydeck.bash
+      - completions/_lazydeck
+      - completions/lazydeck.fish
+      - packaging/systemd/user/lazydeck-serve.service
       # Ship the Python half alongside the binary. Paths are listed explicitly
       # (not python/**/*) so the local .venv/ and caches are never packaged.
       - python/cli.py
@@ -111,6 +116,16 @@ nfpms:
         dst: /usr/share/doc/lazydeck/LICENSE-uv-APACHE
       - src: ./packaging/uv/licenses/LICENSE-uv-MIT
         dst: /usr/share/doc/lazydeck/LICENSE-uv-MIT
+      - src: ./docs/lazydeck.1
+        dst: /usr/share/man/man1/lazydeck.1
+      - src: ./completions/lazydeck.bash
+        dst: /usr/share/bash-completion/completions/lazydeck
+      - src: ./completions/_lazydeck
+        dst: /usr/share/zsh/vendor-completions/_lazydeck
+      - src: ./completions/lazydeck.fish
+        dst: /usr/share/fish/vendor_completions.d/lazydeck.fish
+      - src: ./packaging/systemd/user/lazydeck-serve.service
+        dst: /usr/lib/systemd/user/lazydeck-serve.service
     scripts:
       postinstall: ./packaging/deb/postinstall.sh
 

@@ -1,0 +1,23 @@
+#compdef lazydeck
+
+_lazydeck() {
+  local -a commands
+  commands=(
+    'serve:run the local engine-integration API'
+    'version:print version and build metadata'
+    'help:show usage information'
+  )
+
+  if (( CURRENT == 2 )); then
+    _describe -t commands 'lazydeck command' commands
+    return
+  fi
+
+  case "$words[2]" in
+    serve)
+      _arguments '--fixture[use the in-memory test backend]' '--help[show usage]' '-h[show usage]'
+      ;;
+  esac
+}
+
+_lazydeck "$@"

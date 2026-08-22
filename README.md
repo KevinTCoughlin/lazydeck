@@ -85,6 +85,14 @@ and `rsync` remain normal package dependencies:
 sudo apt install ./lazydeck_0.2.0_linux_amd64.deb
 ```
 
+Nix users can run LazyDeck without a global install, or enter a development
+shell with the project toolchain:
+
+```bash
+nix run github:KevinTCoughlin/lazydeck -- version
+nix develop github:KevinTCoughlin/lazydeck
+```
+
 Release archives, Debian packages, checksums, SBOMs, and GitHub build
 provenance are generated from the tagged commit.
 
@@ -136,6 +144,25 @@ just run    # builds (if needed) and launches the TUI
 The main screen uses separate **Devices**, **Detail**, and **Activity**
 panels. They render side-by-side in wide terminals and stack vertically in
 narrow terminals; long fleets are paginated around the current cursor.
+
+### Linux editor-integration service
+
+The Godot and Unity integrations locate `lazydeck serve` through its
+session-scoped, permission-restricted connection file at
+`$XDG_RUNTIME_DIR/lazydeck/serve.json`. On Debian installations, enable the
+optional systemd user service after configuring at least one device:
+
+```bash
+systemctl --user enable --now lazydeck-serve.service
+systemctl --user status lazydeck-serve.service
+```
+
+It is intentionally **not** enabled at package-install time: the service uses
+your devkit configuration and local SSH trust state. Stop it with
+`systemctl --user disable --now lazydeck-serve.service`; the interactive TUI
+does not require it. Archive, Homebrew, and Nix users can copy
+`packaging/systemd/user/lazydeck-serve.service` and replace its `ExecStart`
+path with their installed `lazydeck` binary.
 
 ### Custom keybindings/commands (config.yml)
 
