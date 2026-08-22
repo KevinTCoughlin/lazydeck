@@ -5,20 +5,24 @@ README's ["How it talks to devices"](../../README.md) and issue #13) so
 you can discover, pair, and inspect Steam Deck / Steam Machine devkits
 without leaving the editor.
 
-## Status: connect + devices dock only
+## Status: connect, devices, build & deploy, logs
 
-This first slice of issue #14 covers:
+The dock (bottom-right editor panel) covers:
 
-- A "LazyDeck" dock (bottom-right editor panel) that connects to an
-  already-running `lazydeck serve` by reading its connection file.
+- Connecting to an already-running `lazydeck serve` by reading its
+  connection file.
 - Listing the devices configured in `devices.toml`.
 - Browsing for devkits announcing themselves on the LAN (mDNS discovery).
 - Pairing this workstation's SSH key with a device that's already in
   `devices.toml`.
+- Exporting the current project via a chosen export preset and deploying
+  the result to the selected device, with job progress polled until it
+  finishes.
+- Syncing the selected device's logs to a local directory.
+- Cancelling an in-flight deploy or log-sync job.
 
 **Not included yet** (tracked as follow-up work on issue #14):
 
-- Export, deploy, and log-sync from the editor.
 - Launching/stopping a deployed title (the local service API itself
   doesn't support this yet either — see `/v1/capabilities`).
 - The plugin spawning `lazydeck serve` itself. For now, run `lazydeck
@@ -26,6 +30,29 @@ This first slice of issue #14 covers:
 - Pairing a device discovered over mDNS that isn't already in
   `devices.toml` — add it to the config first (same as the TUI's
   separate add-device flow), then Connect again.
+
+## ⚠️ The export step is the least certain part of this plugin
+
+Build/deploy calls Godot's own export machinery in-process
+(`EditorExportPlatform.export_project()`, via `api/export_runner.gd`) —
+the same API Godot's Export dialog and `--export-release`/`--export-debug`
+use internally, per issue #14's "run the Godot export through supported
+editor APIs where possible." That was a deliberate choice over shelling
+out to a second `godot --headless --export-...` process, but it also
+means the dock exports the project's *currently saved* state — save any
+open scenes/resources before clicking **Build & deploy**, or the export
+won't include unsaved changes.
+
+The specific detail most likely to need adjusting on a real run:
+`export_project()` takes a full *file* path (e.g.
+`/tmp/export/mygame.x86_64`), and Godot writes that executable plus its
+`.pck` and any other per-platform files into the same directory — which
+is why the dock asks for an output directory and an executable name
+separately rather than one combined path. If the platform corrects or
+appends an extension itself, what's actually on disk may not exactly
+match the executable name you typed; check the output directory and
+adjust the field to match before deploying again. See the comment at the
+top of `api/export_runner.gd` for the full reasoning.
 
 ## Requirements
 

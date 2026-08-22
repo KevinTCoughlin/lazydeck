@@ -294,9 +294,10 @@ HTTP+SSE API, so engine editors can drive them without shelling out to
 
 A Godot 4 editor plugin built on that API lives in
 [`integrations/godot`](integrations/godot) — run `lazydeck serve`, then
-enable the plugin to discover, pair, and inspect devkits from a dock in
-the editor. See that directory's README for current scope (connect +
-devices only, so far) and a runnable example project.
+enable the plugin to discover, pair, and inspect devkits, build and
+deploy the current project, and sync logs, all from a dock in the editor.
+See that directory's README for current scope and a runnable example
+project.
 
 ## Troubleshooting
 
