@@ -190,14 +190,22 @@ func TestWaitForJobTerminal(t *testing.T) {
 }
 
 func TestWaitForJobTimeout(t *testing.T) {
+	// Use a generous margin between how long the first (only) poll takes
+	// and when the context expires, so ctx.Done() reliably fires while
+	// WaitForJob is waiting between polls rather than racing the
+	// in-flight HTTP round trip itself (which flaked on loaded CI
+	// runners under the previous 30ms/10ms timings: if ctx expired while
+	// the response body was still being read, GetJob returned an error
+	// and WaitForJob returned a zero-value Job instead of the "running"
+	// snapshot this test wants to assert on).
 	cli, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(t, w, http.StatusOK, map[string]any{"job": Job{ID: "job-1", Status: "running"}})
 	})
 
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
-	job, err := cli.WaitForJob(ctx, "job-1", 10*time.Millisecond)
+	job, err := cli.WaitForJob(ctx, "job-1", time.Second)
 	if err == nil {
 		t.Fatal("expected a timeout error, got nil")
 	}
