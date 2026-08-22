@@ -1,6 +1,6 @@
 # LazyDeck Unity demo
 
-A minimal Unity 2023.1+ (Unity 6) project with nothing in it except the
+A minimal Unity 2023.1 or newer (including Unity 6) project with nothing in it except the
 LazyDeck package referenced (see
 [`../../integrations/unity`](../../integrations/unity)), so you can try
 the editor window without wiring it into a real game first.
@@ -14,7 +14,7 @@ create a `Library/` cache the first time it opens this folder.
 ## Try it
 
 1. Run `lazydeck serve` in a terminal (see the root README).
-2. Open this folder as a project in Unity 2023.1+ (Unity 6).
+2. Open this folder as a project in Unity 2023.1 or newer (including Unity 6).
 3. Open **Window → LazyDeck** and click **Connect**.
 
 This project intentionally contains no device-specific or secret data —

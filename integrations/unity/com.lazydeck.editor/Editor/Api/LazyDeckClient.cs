@@ -60,6 +60,14 @@ namespace LazyDeck.Editor.Api
     /// </summary>
     internal sealed class LazyDeckClient
     {
+        // UnityWebRequest.timeout defaults to 0 (no timeout); every request
+        // this client makes is a short, non-streaming call (connect,
+        // devices, pair, discover), so a fixed bound is enough to guarantee
+        // RequestAsync always completes instead of leaving a caller's
+        // _busy flag stuck true if serve accepts a request and then stops
+        // responding.
+        private const int RequestTimeoutSeconds = 30;
+
         private readonly string _baseUrl;
         private readonly string _token;
 
@@ -74,22 +82,23 @@ namespace LazyDeck.Editor.Api
         /// /v1/... route; jsonBody, when non-null, is sent as the request
         /// body with a JSON content type.
         ///
-        /// Uses a plain `while (!operation.isDone) await
-        /// Awaitable.NextFrameAsync();` poll rather than an event-based
-        /// bridge: this is the most widely-documented Awaitable pattern
-        /// and the piece of this client most worth double-checking against
-        /// a real Editor session outside Play mode, since this package was
-        /// written without one available (see
-        /// integrations/unity/README.md). If NextFrameAsync turns out not
-        /// to pump reliably in Editor-only context on the version you're
-        /// testing with, wiring UnityWebRequestAsyncOperation.completed
-        /// into an AwaitableCompletionSource is the fix.
+        /// Bridges UnityWebRequestAsyncOperation.completed into an
+        /// Awaitable via AwaitableCompletionSource, rather than polling
+        /// with `while (!operation.isDone) await Awaitable.NextFrameAsync();`
+        /// — that poll is tied to the player-frame loop, which an
+        /// EditorWindow invokes outside Play mode only on its own repaint
+        /// cadence, so it could leave a request pending indefinitely in an
+        /// editor-only context. This class was written without a Unity
+        /// Editor available to verify either approach against (see
+        /// integrations/unity/README.md); this is the more
+        /// editor-context-safe of the two per Unity's own Awaitable docs.
         /// </summary>
         public async Awaitable<ApiResult> RequestAsync(string method, string path, string jsonBody = null)
         {
             using var request = new UnityWebRequest(_baseUrl + path, method);
             request.SetRequestHeader("Authorization", "Bearer " + _token);
             request.downloadHandler = new DownloadHandlerBuffer();
+            request.timeout = RequestTimeoutSeconds;
             if (!string.IsNullOrEmpty(jsonBody))
             {
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(jsonBody));
@@ -97,10 +106,9 @@ namespace LazyDeck.Editor.Api
             }
 
             UnityWebRequestAsyncOperation operation = request.SendWebRequest();
-            while (!operation.isDone)
-            {
-                await Awaitable.NextFrameAsync();
-            }
+            var completionSource = new Awaitable.AwaitableCompletionSource();
+            operation.completed += _ => completionSource.SetResult();
+            await completionSource.Awaitable;
 
             if (
                 request.result == UnityWebRequest.Result.ConnectionError

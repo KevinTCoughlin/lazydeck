@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using LazyDeck.Editor.Api;
 using UnityEditor;
 using UnityEngine;
@@ -46,12 +47,18 @@ namespace LazyDeck.Editor
             public DiscoveredDeviceEntry[] devices;
         }
 
+        [Serializable]
+        private sealed class CapabilitiesResponse
+        {
+            public string api_version;
+        }
+
         private LazyDeckClient _client;
         private string _statusText = "Not connected";
         private DeviceEntry[] _devices = Array.Empty<DeviceEntry>();
         private int _selectedDeviceIndex = -1;
         private DiscoveredDeviceEntry[] _discovered = Array.Empty<DiscoveredDeviceEntry>();
-        private string _log = "";
+        private readonly StringBuilder _log = new StringBuilder();
         private Vector2 _logScroll;
         private bool _busy;
 
@@ -114,7 +121,8 @@ namespace LazyDeck.Editor
             EditorGUILayout.LabelField("Discover on LAN", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 "Discovered devices aren't automatically pairable: add a matching [[device]] "
-                    + "entry to devices.toml first, then Connect again.",
+                    + "entry to devices.toml and restart lazydeck serve first (it only reads "
+                    + "devices.toml at startup), then Connect again.",
                 MessageType.Info
             );
 
@@ -134,7 +142,7 @@ namespace LazyDeck.Editor
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Log", EditorStyles.boldLabel);
             _logScroll = EditorGUILayout.BeginScrollView(_logScroll, GUILayout.Height(150));
-            EditorGUILayout.TextArea(_log, GUILayout.ExpandHeight(true));
+            EditorGUILayout.TextArea(_log.ToString(), GUILayout.ExpandHeight(true));
             EditorGUILayout.EndScrollView();
         }
 
@@ -150,6 +158,7 @@ namespace LazyDeck.Editor
                 _client = null;
                 _devices = Array.Empty<DeviceEntry>();
                 _selectedDeviceIndex = -1;
+                _discovered = Array.Empty<DiscoveredDeviceEntry>();
 
                 ConnectionLocator.Result located = ConnectionLocator.Load();
                 if (!located.Ok)
@@ -161,10 +170,35 @@ namespace LazyDeck.Editor
 
                 var client = new LazyDeckClient(located.Info);
                 ApiResult caps = await client.GetCapabilitiesAsync();
+                if (this == null)
+                {
+                    return; // window closed while the request was in flight
+                }
                 if (!caps.Ok)
                 {
                     _statusText = "Not connected";
                     LogLine($"Found a connection file but the request failed: {caps.ErrorMessage}");
+                    return;
+                }
+
+                // caps.Ok only reflects the HTTP status; validate that the body
+                // actually is a capabilities payload with an api_version before
+                // treating this endpoint as a compatible lazydeck serve.
+                CapabilitiesResponse parsedCaps;
+                try
+                {
+                    parsedCaps = JsonUtility.FromJson<CapabilitiesResponse>(caps.Body);
+                }
+                catch (ArgumentException e)
+                {
+                    _statusText = "Not connected";
+                    LogLine($"Found a connection file but the capabilities response was not valid JSON: {e.Message}");
+                    return;
+                }
+                if (parsedCaps == null || string.IsNullOrEmpty(parsedCaps.api_version))
+                {
+                    _statusText = "Not connected";
+                    LogLine("Found a connection file but the capabilities response was missing an api_version.");
                     return;
                 }
 
@@ -176,14 +210,21 @@ namespace LazyDeck.Editor
             }
             finally
             {
-                _busy = false;
-                Repaint();
+                if (this != null)
+                {
+                    _busy = false;
+                    Repaint();
+                }
             }
         }
 
         private async Awaitable RefreshDevicesAsync(LazyDeckClient client)
         {
             ApiResult result = await client.ListDevicesAsync();
+            if (this == null)
+            {
+                return; // window closed while the request was in flight
+            }
             if (_client != client)
             {
                 return; // superseded by a later Connect click; that call owns the UI now
@@ -221,6 +262,10 @@ namespace LazyDeck.Editor
             {
                 LogLine($"Pairing {device.id}...");
                 ApiResult result = await client.PairDeviceAsync(device.id);
+                if (this == null)
+                {
+                    return; // window closed while the request was in flight
+                }
                 if (_client != client)
                 {
                     return;
@@ -233,8 +278,11 @@ namespace LazyDeck.Editor
             }
             finally
             {
-                _busy = false;
-                Repaint();
+                if (this != null)
+                {
+                    _busy = false;
+                    Repaint();
+                }
             }
         }
 
@@ -251,6 +299,10 @@ namespace LazyDeck.Editor
                 _discovered = Array.Empty<DiscoveredDeviceEntry>();
                 LogLine("Discovering devkits on the LAN...");
                 ApiResult result = await client.DiscoverDevicesAsync();
+                if (this == null)
+                {
+                    return; // window closed while the request was in flight
+                }
                 if (_client != client)
                 {
                     return;
@@ -278,14 +330,17 @@ namespace LazyDeck.Editor
             }
             finally
             {
-                _busy = false;
-                Repaint();
+                if (this != null)
+                {
+                    _busy = false;
+                    Repaint();
+                }
             }
         }
 
         private void LogLine(string text)
         {
-            _log += text + "\n";
+            _log.Append(text).Append('\n');
         }
     }
 }

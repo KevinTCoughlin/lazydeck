@@ -26,12 +26,15 @@ what #14/#16 deferred on the Godot side):
 - The package spawning `lazydeck serve` itself. For now, run `lazydeck
   serve` yourself in a terminal before opening the window.
 - Pairing a device discovered over mDNS that isn't already in
-  `devices.toml` — add it to the config first, then Connect again.
+  `devices.toml` — `lazydeck serve` reads `devices.toml` once at startup,
+  so add the device to the config and restart `lazydeck serve` first,
+  then Connect again (re-clicking Connect alone re-reads the connection
+  file, not `devices.toml`).
 
 ## Requirements
 
-- Unity **2023.1** (Unity 6) or newer — the package uses the `Awaitable`
-  API, which isn't available on older LTS releases.
+- Unity **2023.1** or newer (including Unity 6) — the package uses the
+  `Awaitable` API, which isn't available on older LTS releases.
 - `lazydeck serve` running (see the root README) before you open the window.
 
 ## Installing
