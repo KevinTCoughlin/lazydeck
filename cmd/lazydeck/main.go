@@ -16,6 +16,7 @@ import (
 
 	"github.com/kevintcoughlin/lazydeck/internal/client"
 	"github.com/kevintcoughlin/lazydeck/internal/config"
+	"github.com/kevintcoughlin/lazydeck/internal/fixture"
 	"github.com/kevintcoughlin/lazydeck/internal/server"
 	"github.com/kevintcoughlin/lazydeck/internal/tui"
 )
@@ -40,7 +41,7 @@ func main() {
 			printUsage()
 			return
 		case "serve":
-			if err := runServe(); err != nil {
+			if err := runServe(hasFlag(os.Args[2:], "--fixture")); err != nil {
 				fmt.Fprintln(os.Stderr, "lazydeck:", err)
 				os.Exit(1)
 			}
@@ -94,6 +95,13 @@ func printUsage() {
 Usage:
   lazydeck            Launch the interactive TUI.
   lazydeck serve      Run the local engine-integration API (see issue #13).
+  lazydeck serve --fixture
+                      Run the API against a fake in-memory devkit backend
+                      instead of the real uv/Python/SSH bridge -- for engine
+                      integration testing and container-based CI, where no
+                      real Steam Deck/Steam Machine is reachable. Shape its
+                      behavior with LAZYDECK_FIXTURE_* env vars; see
+                      internal/fixture's package doc.
   lazydeck version    Print version and build metadata.
   lazydeck help       Show this help.
 
@@ -142,12 +150,13 @@ func run() error {
 // until it shuts down or is interrupted. Config is loaded once at startup,
 // matching run()'s behavior for the TUI: the device list is not expected to
 // change out from under a running server in this first slice.
-func runServe() error {
-	cli, err := client.New()
-	if err != nil {
-		return err
-	}
-
+//
+// When useFixture is true, the real uv/Python/SSH-backed client is
+// replaced with internal/fixture's fake devkit backend, so engine
+// integration tests and container-based CI can exercise the full API
+// surface (deploy/poll/cancel/log-sync/etc) without uv, Python, SSH,
+// rsync, or real Steam Deck/Steam Machine hardware.
+func runServe(useFixture bool) error {
 	path, err := config.DefaultPath()
 	if err != nil {
 		return err
@@ -160,5 +169,25 @@ func runServe() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if useFixture {
+		return server.Run(ctx, fixture.NewFromEnv(), cfg)
+	}
+
+	cli, err := client.New()
+	if err != nil {
+		return err
+	}
 	return server.Run(ctx, cli, cfg)
+}
+
+// hasFlag reports whether name appears verbatim among args, so subcommands
+// like `serve` can accept simple boolean flags without pulling in the flag
+// package for a single on/off switch.
+func hasFlag(args []string, name string) bool {
+	for _, a := range args {
+		if a == name {
+			return true
+		}
+	}
+	return false
 }

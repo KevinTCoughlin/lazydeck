@@ -36,24 +36,43 @@ lint:
     cd {{python_dir}} && uv run --frozen ruff check .
     shellcheck install.sh packaging/deb/postinstall.sh scripts/*.sh
 
-# CI-equivalent correctness checks.
+# CI-equivalent correctness checks (see scripts/ci.sh, the single source
+# of truth also used by the Containerfile's `ci` stage).
 check:
-    go vet ./...
-    go test -race ./...
-    cd {{python_dir}} && uv lock --check && uv sync --frozen
-    cd {{python_dir}} && uv run --frozen ruff check .
-    cd {{python_dir}} && uv run --frozen python -m unittest discover -s . -p 'test_*.py' -v
-    shellcheck install.sh packaging/deb/postinstall.sh scripts/*.sh
+    bash scripts/ci.sh
 
 # Validate release configuration and build local snapshot artifacts.
 snapshot:
     goreleaser check
     goreleaser release --snapshot --clean
 
-# Build and run the reproducible test container.
-container-test:
-    podman build --tag lazydeck-dev:test --file Containerfile .
-    podman run --rm lazydeck-dev:test
+# Build and run the reproducible checks inside a container. ENGINE selects
+# the container runtime (podman, docker, or Apple's `container` CLI on
+# macOS 26+); all three build/run plain OCI images from the same
+# Containerfile, so this recipe works unmodified across engines.
+container-check ENGINE="podman":
+    {{ENGINE}} build --target ci --tag lazydeck-ci:test --file Containerfile .
+    {{ENGINE}} run --rm lazydeck-ci:test
+
+# Build and run the Godot integration test (examples/godot-demo, exercised
+# against `lazydeck serve --fixture`) inside a container with a pinned
+# Godot + export templates. Slower than container-check (a fresh Godot
+# download + editor import on first build), so it's kept as a separate
+# recipe/CI job rather than folded into container-check.
+container-godot ENGINE="podman":
+    {{ENGINE}} build --target godot-integration --tag lazydeck-godot:test --file Containerfile .
+    {{ENGINE}} run --rm lazydeck-godot:test
+
+# Run the Godot integration test directly on this machine (no container),
+# e.g. for fast local iteration while editing integrations/godot/. Needs a
+# `godot` binary on PATH or GODOT_BIN set; run scripts/fetch-godot.sh once
+# to install a pinned version if you don't already have one.
+integration-godot: build
+    bash scripts/godot-integration-test.sh {{bin}}
+
+# Build and run the reproducible test container (kept for backward
+# compatibility; equivalent to `just container-check`).
+container-test: (container-check "podman")
 
 # Run the headless python CLI directly, e.g.:
 #   just cli status --machine 192.168.1.50

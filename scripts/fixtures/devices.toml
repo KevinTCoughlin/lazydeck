@@ -1,0 +1,11 @@
+# Fake device list for `lazydeck serve --fixture` integration tests (Godot,
+# Unity, container CI). Deliberately points at an address in TEST-NET-1
+# (RFC 5737, 192.0.2.0/24) that is guaranteed never to be a real reachable
+# host, so nothing here can accidentally deploy to a real machine: the
+# fixture client (internal/fixture) never actually dials "machine" for any
+# operation, it just needs a device to exist in this file for /v1/devices
+# and /v1/devices/{id}/... routes to resolve.
+[[device]]
+name = "fixture-deck"
+machine = "192.0.2.1"
+login = "deck"
