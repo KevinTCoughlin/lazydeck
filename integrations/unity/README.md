@@ -53,30 +53,13 @@ Add the package to your project's `Packages/manifest.json`:
 relative path into this repo), as a minimal example project with nothing
 else in it.
 
-## ⚠️ Not yet tested in a real Unity Editor
+## Validation status
 
-This package was written without access to a Unity Editor to run it in —
-a stricter version of the same gap the Godot plugin (#14/#16) started
-with, since there was no C# compiler available at all to even check it
-parses, let alone runs. Every `.cs` file was written carefully against
-the Unity Editor scripting API docs, checked by hand for balanced
-braces/parens, and kept to the most conservative, longest-documented
-patterns available (e.g. `Awaitable.NextFrameAsync()` polling rather than
-a newer/less-certain bridging API, `JsonUtility` DTOs kept as plain
-classes rather than structs). None of that is a substitute for actually
-running it.
-
-The piece most worth checking first in a real Editor session: whether
-`LazyDeckClient.RequestAsync`'s `while (!operation.isDone) await
-Awaitable.NextFrameAsync();` loop pumps correctly for an `EditorWindow`
-outside Play mode on your Unity version. If it doesn't, wiring
-`UnityWebRequestAsyncOperation.completed` into an
-`AwaitableCompletionSource` is the documented alternative — see the
-comment on `RequestAsync` in `LazyDeckClient.cs`.
-
-Please test locally and report anything that breaks — this note should
-be removed once someone has verified it against a real Unity Editor and
-a real (or fake, per `internal/server`'s test pattern) `lazydeck serve`.
+The package sources compile without warnings against Unity 6.5's real
+managed editor assemblies. A full Editor run is still outstanding: the
+available local Unity installation had no active Editor license, so it
+could recognize the demo project but could not import and execute it.
+Pairing and discovery also still require real Steam hardware testing.
 
 ## How it finds `lazydeck serve`
 

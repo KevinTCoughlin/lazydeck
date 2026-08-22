@@ -34,28 +34,15 @@ The dock (bottom-right editor panel) covers:
   Connect again (re-clicking Connect alone re-reads the connection
   file, not `devices.toml`).
 
-## ⚠️ The export step is the least certain part of this plugin
+## Export behavior
 
-Build/deploy calls Godot's own export machinery in-process
-(`EditorExportPlatform.export_project()`, via `api/export_runner.gd`) —
-the same API Godot's Export dialog and `--export-release`/`--export-debug`
-use internally, per issue #14's "run the Godot export through supported
-editor APIs where possible." That was a deliberate choice over shelling
-out to a second `godot --headless --export-...` process, but it also
-means the dock exports the project's *currently saved* state — save any
-open scenes/resources before clicking **Build & deploy**, or the export
-won't include unsaved changes.
-
-The specific detail most likely to need adjusting on a real run:
-`export_project()` takes a full *file* path (e.g.
-`/tmp/export/mygame.x86_64`), and Godot writes that executable plus its
-`.pck` and any other per-platform files into the same directory — which
-is why the dock asks for an output directory and an executable name
-separately rather than one combined path. If the platform corrects or
-appends an extension itself, what's actually on disk may not exactly
-match the executable name you typed; check the output directory and
-adjust the field to match before deploying again. See the comment at the
-top of `api/export_runner.gd` for the full reasoning.
+Build/deploy runs the current Godot executable with
+`--headless --export-release` or `--export-debug`, because Godot does not
+expose its internal `EditorExport` singleton to GDScript plugins. Save
+open scenes and resources before clicking **Build & deploy**: the export
+subprocess reads the project from disk. The dock supplies the configured
+output directory and executable name as the export path, then deploys the
+whole directory so accompanying `.pck` and platform files are included.
 
 ## Requirements
 
@@ -74,16 +61,14 @@ Copy (or symlink) `addons/lazydeck` into your Godot project's own
 Plugins. `examples/godot-demo` in this repository does exactly that via a
 symlink, as a minimal example project with nothing else in it.
 
-## ⚠️ Not yet tested in a real Godot editor
+## Validation
 
-This plugin was written without access to a Godot editor to run it in.
-Every `.gd` file is formatted and linted with
-[gdtoolkit](https://github.com/Scony/godot-gdscript-toolkit)
-(`gdformat`/`gdlint`, both clean) and reviewed carefully against the
-Godot 4.3 API docs, but that's static review, not a real run. If
-something doesn't work as described here, please open an issue — this
-note should be removed once someone has verified it against a real
-Godot editor and a real (or `internal/client`-fake) `lazydeck serve`.
+The demo plugin has been loaded in Godot 4.7.1 on Fedora Linux. Its
+release export completed successfully, and its API client connected to
+an isolated live `lazydeck serve`, submitted a deployment job, polled
+the job, and cancelled it. This validation used a fake unreachable
+device rather than real Steam hardware, so pairing and a successful
+upload still require hardware testing.
 
 ## How it finds `lazydeck serve`
 

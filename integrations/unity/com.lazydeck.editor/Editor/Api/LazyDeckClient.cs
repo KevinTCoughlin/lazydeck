@@ -106,7 +106,7 @@ namespace LazyDeck.Editor.Api
             }
 
             UnityWebRequestAsyncOperation operation = request.SendWebRequest();
-            var completionSource = new Awaitable.AwaitableCompletionSource();
+            var completionSource = new AwaitableCompletionSource();
             operation.completed += _ => completionSource.SetResult();
             await completionSource.Awaitable;
 

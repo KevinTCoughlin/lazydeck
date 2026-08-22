@@ -545,6 +545,7 @@ func _poll_job(client: LazyDeckClient, job_id: String) -> Dictionary:
 			return result
 
 		await get_tree().create_timer(1.0).timeout
+	return {}
 
 
 func _report_job_outcome(label: String, final_result: Dictionary) -> void:

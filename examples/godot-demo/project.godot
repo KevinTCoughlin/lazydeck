@@ -12,6 +12,7 @@ config_version=5
 
 config/name="LazyDeck Godot Demo"
 config/features=PackedStringArray("4.3", "Forward Plus")
+run/main_scene="res://main.tscn"
 
 [editor_plugins]
 
