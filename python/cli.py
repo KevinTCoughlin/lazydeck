@@ -271,7 +271,20 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--name", required=True, help="gameid / shortcut name")
     sp.add_argument("--directory", required=True, help="local build directory to rsync up")
     sp.add_argument("--delete-extraneous", action="store_true")
-    sp.add_argument("--argv", nargs="*", default=None)
+    sp.add_argument(
+        "--argv",
+        nargs=argparse.REMAINDER,
+        default=None,
+        help=(
+            "command-line the shortcut launches with; must be the last "
+            "flag on the command line since REMAINDER captures every "
+            "token after it verbatim, including ones starting with '-' "
+            "(e.g. --fullscreen). With plain nargs='*', argparse stops "
+            "consuming as soon as it sees a token that looks like an "
+            "option and errors out on it as unrecognized, which broke "
+            "any argv entry starting with '-'."
+        ),
+    )
 
     sp = add("delete", cmd_delete)
     sp.add_argument("--name", required=True)

@@ -196,7 +196,7 @@ func registerMutatingTools(s *mcp.Server, cli *mcpapi.Client) {
 
 	type deployArgs struct {
 		DeviceID         string   `json:"device_id" jsonschema:"the configured device id to deploy to"`
-		GameID           string   `json:"game_id" jsonschema:"identifier for the deployed title; letters, digits, '.', '_', '-' only"`
+		GameID           string   `json:"game_id" jsonschema:"identifier for the deployed title; letters, digits, '.', '_' only -- unlike other tools' game_id, '-' is rejected here because it breaks the remote Steam client's shortcut-registration step on real hardware (see docs/DEVICE_LAUNCH.md)"`
 		Directory        string   `json:"directory" jsonschema:"absolute path to the exported build on this workstation"`
 		DeleteExtraneous bool     `json:"delete_extraneous,omitempty" jsonschema:"mirror the remote directory exactly (rsync --delete) instead of only adding/updating files"`
 		Argv             []string `json:"argv,omitempty" jsonschema:"command-line the Steam shortcut launches with, e.g. ['./MyGame.sh']; without it the shortcut has nothing to launch and the deploy job fails once rsync finishes"`
