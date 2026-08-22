@@ -27,9 +27,6 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.6"
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          version: "0.12.5"
       - name: Verify formatting
         run: |
           unformatted="$(gofmt -l .)"
@@ -71,6 +68,8 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: "python/uv.lock"
       - name: Install from lockfile (frozen)
         run: uv sync --frozen
       - name: Ruff
@@ -91,6 +90,8 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: "python/uv.lock"
       - uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           syft-version: "v1.51.0"
@@ -122,5 +123,23 @@ jobs:
         target: [ci, godot-integration]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: docker build --target ${{ matrix.target }} --tag lazydeck-${{ matrix.target }}:test --file Containerfile .
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      # GHA-backed layer cache, scoped per matrix target: without it every
+      # push/PR re-downloads and re-verifies the full Godot editor +
+      # export templates (scripts/fetch-godot.sh, ~500MB) from scratch in
+      # the godot-integration leg, since a plain `docker build` on a
+      # GitHub-hosted runner starts with an empty local layer cache every
+      # run. Layers before an unchanged step (go.mod/go.sum, apt
+      # packages, the Godot download) are reused whenever those inputs
+      # haven't changed, so only the `COPY . .` layer onward is rebuilt on
+      # a typical code-only change.
+      - uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: Containerfile
+          target: ${{ matrix.target }}
+          tags: lazydeck-${{ matrix.target }}:test
+          load: true
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
       - run: docker run --rm lazydeck-${{ matrix.target }}:test
