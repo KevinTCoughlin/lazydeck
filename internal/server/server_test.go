@@ -282,7 +282,14 @@ func TestJobEventsStreamsUntilTerminal(t *testing.T) {
 	}](t, doRequest(t, ts, "POST", "/v1/devices/deck-1/deployments",
 		map[string]string{"game_id": "mygame", "directory": "/tmp/build"}, testToken))
 
-	req, _ := http.NewRequest("GET", ts.URL+"/v1/jobs/"+created.Job.ID+"/events", nil)
+	// A context deadline (rather than only a deadline variable checked
+	// between iterations) bounds this test even if the server never emits
+	// a terminal event at all: scanner.Scan() blocks on a body read with
+	// nothing else to make it return, so without this the test would hang
+	// until the whole suite's global timeout instead of failing cleanly.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", ts.URL+"/v1/jobs/"+created.Job.ID+"/events", nil)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := ts.Client().Do(req)
 	if err != nil {
@@ -298,7 +305,6 @@ func TestJobEventsStreamsUntilTerminal(t *testing.T) {
 
 	scanner := bufio.NewScanner(resp.Body)
 	sawTerminal := false
-	deadline := time.Now().Add(2 * time.Second)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data: ") {
@@ -313,12 +319,9 @@ func TestJobEventsStreamsUntilTerminal(t *testing.T) {
 				break
 			}
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("did not observe a terminal event in time")
-		}
 	}
 	if !sawTerminal {
-		t.Fatal("stream ended without a terminal event")
+		t.Fatal("stream ended without observing a terminal event (or the 5s context deadline cut the read off first)")
 	}
 }
 
