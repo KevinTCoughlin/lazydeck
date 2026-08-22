@@ -19,6 +19,23 @@ type ConnectionInfo struct {
 	APIVersion string `json:"api_version"`
 }
 
+// ConnectionFilePath returns the path `lazydeck serve` writes its
+// ConnectionInfo to. It is exported so other same-module clients (e.g.
+// internal/mcp's launcher) can discover a running server the same way an
+// out-of-process engine plugin would, without duplicating the XDG/cache-dir
+// resolution logic.
+func ConnectionFilePath() (string, error) {
+	return connectionFilePath()
+}
+
+// ReadConnectionInfo reads and parses the connection file at path. It is
+// exported for the same reason as ConnectionFilePath: same-module clients
+// like internal/mcp need to read what `lazydeck serve` wrote without
+// reimplementing the JSON shape.
+func ReadConnectionInfo(path string) (ConnectionInfo, error) {
+	return readConnectionInfo(path)
+}
+
 // connectionFilePath returns the path `lazydeck serve` writes its
 // ConnectionInfo to. It prefers $XDG_RUNTIME_DIR (tmpfs-backed, per-session,
 // already 0700 on a systemd-managed Linux desktop) since the file holds a
