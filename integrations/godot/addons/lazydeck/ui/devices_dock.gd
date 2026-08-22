@@ -131,6 +131,9 @@ func _connect() -> void:
 	if not caps.get("ok", false):
 		_status_label.text = "Not connected"
 		_log_line("Found a connection file but the request failed: %s" % _error_message(caps))
+		client.queue_free()
+		_client = null
+		_update_pair_button()
 		return
 
 	_status_label.text = "Connected: %s (pid %d, port %d)" % [info.api_version, info.pid, info.port]
@@ -218,4 +221,7 @@ func _error_message(result: Dictionary) -> String:
 
 func _log_line(text: String) -> void:
 	if _log:
-		_log.text += text + "\n"
+		# append_text(), not `text +=`: the latter reparses/rebuilds the
+		# whole label from scratch on every line, getting steadily more
+		# expensive as a long-running editor session's log grows.
+		_log.append_text(text + "\n")
