@@ -35,12 +35,21 @@ static func start_if_needed() -> Dictionary:
 
 	var binary := executable()
 	if binary.strip_edges() == "":
-		return {"started": false, "error": "lazydeck serve auto-start failed: no executable configured"}
+		return {
+			"started": false, "error": "lazydeck serve auto-start failed: no executable configured"
+		}
+	# create_process() returns the new PID, or -1 if it couldn't be created —
+	# not a Godot Error code, so error_string() isn't meaningful here. -1 is
+	# the only documented failure value; anything else non-positive is
+	# reported as-is rather than guessed at.
 	var pid := OS.create_process(binary, PackedStringArray(["serve"]))
 	if pid <= 0:
 		return {
 			"started": false,
-			"error": "lazydeck serve auto-start failed for %s (error %s)"
-				% [binary, error_string(pid)],
+			"error":
+			(
+				"lazydeck serve auto-start failed: could not start %s (create_process returned %d)"
+				% [binary, pid]
+			),
 		}
 	return {"started": true, "pid": pid}

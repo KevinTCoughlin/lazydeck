@@ -239,8 +239,10 @@ func _connect() -> void:
 		var launch := LazyDeckServerLauncher.start_if_needed()
 		if launch.get("started", false):
 			_log_line(
-				"Starting lazydeck serve (%s, pid %d)..."
-				% [LazyDeckServerLauncher.executable(), int(launch.get("pid", 0))]
+				(
+					"Starting lazydeck serve (%s, pid %d)..."
+					% [LazyDeckServerLauncher.executable(), int(launch.get("pid", 0))]
+				)
 			)
 			for attempt in 20:
 				await get_tree().create_timer(0.25).timeout
