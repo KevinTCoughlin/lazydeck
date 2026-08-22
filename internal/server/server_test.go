@@ -32,6 +32,7 @@ type fakeClient struct {
 	syncLogsErr    error
 
 	deployCalls int
+	lastArgv    []string
 }
 
 func (f *fakeClient) Discover(ctx context.Context, timeout time.Duration) ([]client.DiscoveredDevice, error) {
@@ -48,9 +49,10 @@ func (f *fakeClient) ListGames(ctx context.Context, machine, login string) ([]an
 	return f.games, f.gamesErr
 }
 
-func (f *fakeClient) Deploy(ctx context.Context, machine, login, gameID, directory string, deleteExtraneous bool) error {
+func (f *fakeClient) Deploy(ctx context.Context, machine, login, gameID, directory string, deleteExtraneous bool, argv []string) error {
 	f.mu.Lock()
 	f.deployCalls++
+	f.lastArgv = argv
 	f.mu.Unlock()
 	if f.deployDelay > 0 {
 		select {
@@ -237,6 +239,43 @@ func TestDeployRunsAsJobAndReportsSuccess(t *testing.T) {
 	}
 }
 
+// TestDeployForwardsArgv locks in that an argv array in the request body
+// reaches devkitClient.Deploy: without it, a real devkit's Steam shortcut
+// has nothing to launch and the underlying script fails once rsync
+// finishes, a gap found during real-hardware validation of the MCP server
+// built on top of this handler.
+func TestDeployForwardsArgv(t *testing.T) {
+	fc := &fakeClient{}
+	_, ts := newTestServer(fc, config.Device{Name: "deck-1", Machine: "steamdeck.local"})
+	defer ts.Close()
+
+	resp := doRequest(t, ts, "POST", "/v1/devices/deck-1/deployments",
+		map[string]any{"game_id": "mygame", "directory": "/tmp/build", "argv": []string{"./run.sh", "--flag"}},
+		testToken)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		fc.mu.Lock()
+		calls := fc.deployCalls
+		fc.mu.Unlock()
+		if calls > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	fc.mu.Lock()
+	got := fc.lastArgv
+	fc.mu.Unlock()
+	want := []string{"./run.sh", "--flag"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("lastArgv = %v, want %v", got, want)
+	}
+}
+
 func TestSecondDeployToSameDeviceIsBusy(t *testing.T) {
 	fc := &fakeClient{deployDelay: 200 * time.Millisecond}
 	_, ts := newTestServer(fc, config.Device{Name: "deck-1", Machine: "steamdeck.local"})
@@ -420,12 +459,28 @@ func TestDeployRejectsInvalidGameID(t *testing.T) {
 		"has spaces",
 		"has/slash",
 		string(make([]byte, 300)), // over any sane length limit
+		"smoke-test",              // embedded dash: breaks real-hardware create-shortcut (see docs/DEVICE_LAUNCH.md)
+		"lazydeck-mcp-smoketest",
 	} {
 		resp := doRequest(t, ts, "POST", "/v1/devices/deck-1/deployments",
 			map[string]string{"game_id": gameID, "directory": "/tmp/build"}, testToken)
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("game_id %q: status = %d, want 400", gameID, resp.StatusCode)
 		}
+	}
+}
+
+// TestSyncLogsAllowsEmbeddedDashInGameID confirms the stricter deploy-only
+// dash rejection (validateDeployGameID) doesn't leak into sync-logs, which
+// never reaches the remote create-shortcut step that dashes break.
+func TestSyncLogsAllowsEmbeddedDashInGameID(t *testing.T) {
+	_, ts := newTestServer(&fakeClient{}, config.Device{Name: "deck-1", Machine: "steamdeck.local"})
+	defer ts.Close()
+
+	resp := doRequest(t, ts, "POST", "/v1/devices/deck-1/logs/sync",
+		map[string]string{"game_id": "lazydeck-mcp-smoketest", "directory": "/tmp/logs"}, testToken)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 for a dash-containing game_id on sync-logs", resp.StatusCode)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/kevintcoughlin/lazydeck/internal/client"
@@ -153,6 +154,29 @@ func validateGameID(id string) error {
 	return nil
 }
 
+// validateDeployGameID applies validateGameID's rules plus one more that's
+// specific to deploy: real-hardware testing found that a '-' *anywhere* in
+// game_id (not just a leading one, which validateGameID already rejects)
+// makes the remote Steam client reject shortcut registration with a
+// generic "missing/invalid arguments" error. That happens in
+// steam-client-create-shortcut, part of Valve's own on-device devkit-utils
+// (not vendored in this repo, so it can't be patched here) — see
+// docs/DEVICE_LAUNCH.md's "Known caveat" section for how this was
+// diagnosed. list-games/delete/sync-logs don't go through that
+// shortcut-creation step, so they keep allowing '-' via validateGameID;
+// only deploy needs the stricter check. Other punctuation crosses the same
+// unescaped remote query string but hasn't been confirmed to fail against
+// real hardware, so it isn't rejected here without evidence.
+func validateDeployGameID(id string) error {
+	if err := validateGameID(id); err != nil {
+		return err
+	}
+	if strings.Contains(id, "-") {
+		return errors.New("game_id must not contain '-' for deploy: the remote Steam client's shortcut-registration protocol rejects it with a generic \"missing/invalid arguments\" error (see docs/DEVICE_LAUNCH.md)")
+	}
+	return nil
+}
+
 // validateDirectory requires an absolute path. internal/client's run()
 // invokes cli.py with cmd.Dir set to the bundled Python runtime's directory
 // (see internal/client/client.go), not this process's working directory or
@@ -166,9 +190,10 @@ func validateDirectory(dir string) error {
 }
 
 type deployRequest struct {
-	GameID           string `json:"game_id"`
-	Directory        string `json:"directory"`
-	DeleteExtraneous bool   `json:"delete_extraneous"`
+	GameID           string   `json:"game_id"`
+	Directory        string   `json:"directory"`
+	DeleteExtraneous bool     `json:"delete_extraneous"`
+	Argv             []string `json:"argv,omitempty"`
 }
 
 func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
@@ -181,7 +206,7 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "invalid-input", err.Error())
 		return
 	}
-	if err := validateGameID(req.GameID); err != nil {
+	if err := validateDeployGameID(req.GameID); err != nil {
 		writeError(w, "invalid-input", err.Error())
 		return
 	}
@@ -194,7 +219,7 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(ctx, deployTimeout)
 		defer cancel()
 		report("deploying to " + d.Name)
-		return s.client.Deploy(ctx, d.Machine, d.Login, req.GameID, req.Directory, req.DeleteExtraneous)
+		return s.client.Deploy(ctx, d.Machine, d.Login, req.GameID, req.Directory, req.DeleteExtraneous, req.Argv)
 	})
 	if err != nil {
 		writeSubmitError(w, err)
