@@ -28,6 +28,19 @@ const (
 	syncLogsToolTimeout = 3 * time.Minute
 )
 
+// maxDiscoverTimeoutSeconds mirrors internal/server/handlers.go's own
+// maxDiscoverTimeoutSeconds: the /v1/devices/discover route itself rejects
+// a larger timeout_seconds with 400 invalid-input, so clamping it
+// client-side here means an over-large value degrades to "browse for the
+// max allowed window" instead of surfacing a confusing API error.
+const maxDiscoverTimeoutSeconds = 300
+
+// discoverTimeoutHeadroom is added on top of the requested browse window
+// when bounding discover_devices' own HTTP round trip, so ordinary mDNS
+// response/network latency around the server's browse deadline doesn't
+// itself trip the tool call's timeout.
+const discoverTimeoutHeadroom = 5 * time.Second
+
 // toolAPIError converts an *mcpapi.APIError (or other error) into a
 // CallToolResult with IsError set, so a failed devkit operation is
 // reported back to the calling agent as tool-call output it can reason
@@ -103,7 +116,18 @@ func registerReadOnlyTools(s *mcp.Server, cli *mcpapi.Client) {
 		if timeout <= 0 {
 			timeout = 5
 		}
-		devices, err := cli.Discover(ctx, timeout)
+		if timeout > maxDiscoverTimeoutSeconds {
+			timeout = maxDiscoverTimeoutSeconds
+		}
+		// The server bounds discover's own browse window to
+		// timeout_seconds, but the HTTP round trip carrying it doesn't
+		// otherwise have a deadline; without one here, a caller-supplied
+		// ctx with no deadline of its own would let a slow/hung request
+		// block the MCP tool call indefinitely rather than for
+		// (at most) the browse window it asked for.
+		discoverCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout*float64(time.Second))+discoverTimeoutHeadroom)
+		defer cancel()
+		devices, err := cli.Discover(discoverCtx, timeout)
 		if err != nil {
 			return toolAPIError(err)
 		}

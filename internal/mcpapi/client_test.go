@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -58,6 +59,28 @@ func TestHealth(t *testing.T) {
 	}
 	if out["status"] != "ok" {
 		t.Errorf("status = %v, want ok", out["status"])
+	}
+}
+
+// TestPathEscaping locks in that device/game/job identifiers containing
+// characters like spaces and slashes (e.g. a devices.toml entry named
+// "Steam Deck (Galileo)") are escaped into the request path rather than
+// splitting it into extra segments or producing an invalid request.
+func TestPathEscaping(t *testing.T) {
+	const rawDeviceID = "Steam Deck / Galileo"
+	cli, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		wantPath := "/v1/devices/" + url.PathEscape(rawDeviceID) + "/status"
+		if r.URL.EscapedPath() != wantPath {
+			t.Fatalf("EscapedPath = %q, want %q", r.URL.EscapedPath(), wantPath)
+		}
+		if r.URL.Path != "/v1/devices/"+rawDeviceID+"/status" {
+			t.Fatalf("decoded Path = %q, want the raw device id round-tripped back out", r.URL.Path)
+		}
+		writeJSON(t, w, http.StatusOK, map[string]any{"status": map[string]any{"state": "ready"}})
+	})
+
+	if _, err := cli.Status(t.Context(), rawDeviceID); err != nil {
+		t.Fatalf("Status: %v", err)
 	}
 }
 

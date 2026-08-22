@@ -120,6 +120,39 @@ func TestListDevicesTool_EndToEnd(t *testing.T) {
 	}
 }
 
+// TestDiscoverDevicesTool_ClampsTimeout locks in that an over-large
+// timeout_seconds is clamped to the API's own documented max (300s, per
+// api/openapi.yaml and internal/server/handlers.go's
+// maxDiscoverTimeoutSeconds) rather than forwarded as-is, since the server
+// would otherwise reject it outright with a 400.
+func TestDiscoverDevicesTool_ClampsTimeout(t *testing.T) {
+	var gotBody struct {
+		TimeoutSeconds float64 `json:"timeout_seconds"`
+	}
+	cli := newFakeAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decoding request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"devices": []map[string]any{}})
+	})
+	session := connectedClient(t, cli, false)
+
+	res, err := session.CallTool(t.Context(), &sdkmcp.CallToolParams{
+		Name:      "discover_devices",
+		Arguments: map[string]any{"timeout_seconds": 10000.0},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(discover_devices): %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("discover_devices returned IsError: %+v", res.Content)
+	}
+	if gotBody.TimeoutSeconds != maxDiscoverTimeoutSeconds {
+		t.Errorf("forwarded timeout_seconds = %v, want clamped to %v", gotBody.TimeoutSeconds, maxDiscoverTimeoutSeconds)
+	}
+}
+
 func TestDeployTool_SurfacesAPIError(t *testing.T) {
 	cli := newFakeAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

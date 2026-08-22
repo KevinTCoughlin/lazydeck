@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -44,12 +45,19 @@ type Client struct {
 }
 
 // New builds a Client from a connection file's BaseURL/Token, as read via
-// internal/server.ConnectionInfo.
+// internal/server.ConnectionInfo. The returned *http.Client has no fixed
+// Timeout: several /v1 endpoints (deploy, logs/sync, and a caller-supplied
+// discover timeout up to 300s per api/openapi.yaml) can legitimately run
+// longer than a short generic default, so callers are expected to bound
+// each request with a context deadline instead (see internal/mcp/tools.go's
+// deployToolTimeout/syncLogsToolTimeout and discover_devices' own
+// clamped+deadlined context) — a client-wide Timeout would otherwise cut
+// off exactly the long-running calls this API deliberately supports.
 func New(baseURL, token string) *Client {
 	return &Client{
 		BaseURL: baseURL,
 		Token:   token,
-		HTTP:    &http.Client{Timeout: 30 * time.Second},
+		HTTP:    &http.Client{},
 	}
 }
 
@@ -189,7 +197,7 @@ func (c *Client) Discover(ctx context.Context, timeoutSeconds float64) ([]map[st
 // Pair calls POST /v1/devices/{id}/pair.
 func (c *Client) Pair(ctx context.Context, deviceID string) (map[string]any, error) {
 	var out map[string]any
-	path := fmt.Sprintf("/v1/devices/%s/pair", deviceID)
+	path := fmt.Sprintf("/v1/devices/%s/pair", url.PathEscape(deviceID))
 	if err := c.do(ctx, http.MethodPost, path, nil, &out); err != nil {
 		return nil, err
 	}
@@ -199,7 +207,7 @@ func (c *Client) Pair(ctx context.Context, deviceID string) (map[string]any, err
 // Status calls GET /v1/devices/{id}/status.
 func (c *Client) Status(ctx context.Context, deviceID string) (map[string]any, error) {
 	var out map[string]any
-	path := fmt.Sprintf("/v1/devices/%s/status", deviceID)
+	path := fmt.Sprintf("/v1/devices/%s/status", url.PathEscape(deviceID))
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err
 	}
@@ -211,7 +219,7 @@ func (c *Client) ListGames(ctx context.Context, deviceID string) ([]any, error) 
 	var out struct {
 		Games []any `json:"games"`
 	}
-	path := fmt.Sprintf("/v1/devices/%s/games", deviceID)
+	path := fmt.Sprintf("/v1/devices/%s/games", url.PathEscape(deviceID))
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err
 	}
@@ -230,7 +238,7 @@ func (c *Client) Deploy(ctx context.Context, deviceID, gameID, directory string,
 		"directory":         directory,
 		"delete_extraneous": deleteExtraneous,
 	}
-	path := fmt.Sprintf("/v1/devices/%s/deployments", deviceID)
+	path := fmt.Sprintf("/v1/devices/%s/deployments", url.PathEscape(deviceID))
 	if err := c.do(ctx, http.MethodPost, path, body, &out); err != nil {
 		return Job{}, err
 	}
@@ -244,7 +252,7 @@ func (c *Client) SyncLogs(ctx context.Context, deviceID, gameID, directory strin
 		Job Job `json:"job"`
 	}
 	body := map[string]any{"game_id": gameID, "directory": directory}
-	path := fmt.Sprintf("/v1/devices/%s/logs/sync", deviceID)
+	path := fmt.Sprintf("/v1/devices/%s/logs/sync", url.PathEscape(deviceID))
 	if err := c.do(ctx, http.MethodPost, path, body, &out); err != nil {
 		return Job{}, err
 	}
@@ -258,7 +266,7 @@ func (c *Client) SyncLogs(ctx context.Context, deviceID, gameID, directory strin
 // round of API-shape design.
 func (c *Client) Launch(ctx context.Context, deviceID, gameID string) (map[string]any, error) {
 	var out map[string]any
-	path := fmt.Sprintf("/v1/devices/%s/games/%s/launch", deviceID, gameID)
+	path := fmt.Sprintf("/v1/devices/%s/games/%s/launch", url.PathEscape(deviceID), url.PathEscape(gameID))
 	if err := c.do(ctx, http.MethodPost, path, nil, &out); err != nil {
 		return nil, err
 	}
@@ -269,7 +277,7 @@ func (c *Client) Launch(ctx context.Context, deviceID, gameID string) (map[strin
 // doc comment: currently always 501.
 func (c *Client) Stop(ctx context.Context, deviceID, gameID string) (map[string]any, error) {
 	var out map[string]any
-	path := fmt.Sprintf("/v1/devices/%s/games/%s/stop", deviceID, gameID)
+	path := fmt.Sprintf("/v1/devices/%s/games/%s/stop", url.PathEscape(deviceID), url.PathEscape(gameID))
 	if err := c.do(ctx, http.MethodPost, path, nil, &out); err != nil {
 		return nil, err
 	}
@@ -281,7 +289,7 @@ func (c *Client) GetJob(ctx context.Context, jobID string) (Job, error) {
 	var out struct {
 		Job Job `json:"job"`
 	}
-	path := fmt.Sprintf("/v1/jobs/%s", jobID)
+	path := fmt.Sprintf("/v1/jobs/%s", url.PathEscape(jobID))
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return Job{}, err
 	}
@@ -293,7 +301,7 @@ func (c *Client) CancelJob(ctx context.Context, jobID string) (Job, error) {
 	var out struct {
 		Job Job `json:"job"`
 	}
-	path := fmt.Sprintf("/v1/jobs/%s", jobID)
+	path := fmt.Sprintf("/v1/jobs/%s", url.PathEscape(jobID))
 	if err := c.do(ctx, http.MethodDelete, path, nil, &out); err != nil {
 		return Job{}, err
 	}

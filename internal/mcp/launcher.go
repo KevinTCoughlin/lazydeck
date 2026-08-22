@@ -135,7 +135,12 @@ func spawnAndWait(ctx context.Context, connPath string, useFixture bool) (server
 	cmd := exec.Command(bin, args...)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	// Stdout must stay nil: `lazydeck mcp` speaks MCP over its own stdout,
+	// and a spawned `lazydeck serve` sharing that fd could corrupt the
+	// protocol stream. Stderr carries no MCP framing, so it's safe (and,
+	// per the error message below, useful) to leave connected to this
+	// process's own stderr for startup-failure debugging.
+	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return server.ConnectionInfo{}, fmt.Errorf("auto-starting %s serve: %w", bin, err)
 	}
