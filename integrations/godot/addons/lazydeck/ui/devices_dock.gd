@@ -114,10 +114,20 @@ func _connect() -> void:
 		return
 
 	var info: LazyDeckConnectionInfo = located["info"]
-	_client = LazyDeckClient.new(info)
-	add_child(_client)
+	# Captured locally rather than read back from _client after the await
+	# below: if Connect is clicked again (or _ready()'s initial connect is
+	# still in flight) before this resumes, _client will already point at
+	# a newer, different client by then, and this call must recognize it's
+	# been superseded instead of mutating UI state on the newer client's
+	# behalf.
+	var client := LazyDeckClient.new(info)
+	_client = client
+	add_child(client)
 
-	var caps := await _client.get_capabilities()
+	var caps := await client.get_capabilities()
+	if _client != client:
+		return
+
 	if not caps.get("ok", false):
 		_status_label.text = "Not connected"
 		_log_line("Found a connection file but the request failed: %s" % _error_message(caps))
@@ -125,13 +135,14 @@ func _connect() -> void:
 
 	_status_label.text = "Connected: %s (pid %d, port %d)" % [info.api_version, info.pid, info.port]
 	_log_line("Connected to lazydeck serve at %s" % info.base_url)
-	await _refresh_devices()
+	await _refresh_devices(client)
 
 
-func _refresh_devices() -> void:
-	if _client == null:
+func _refresh_devices(client: LazyDeckClient) -> void:
+	var result := await client.list_devices()
+	if _client != client:
 		return
-	var result := await _client.list_devices()
+
 	_devices_list.clear()
 	_devices.clear()
 	if not result.get("ok", false):
@@ -159,10 +170,13 @@ func _on_pair_pressed() -> void:
 	var selected := _devices_list.get_selected_items()
 	if selected.is_empty() or _client == null:
 		return
+	var client := _client
 	var device: Dictionary = _devices[selected[0]]
 	var device_id: String = device.get("id", "")
 	_log_line("Pairing %s..." % device_id)
-	var result := await _client.pair_device(device_id)
+	var result := await client.pair_device(device_id)
+	if _client != client:
+		return
 	if result.get("ok", false):
 		_log_line("Paired %s." % device_id)
 	else:
@@ -173,9 +187,12 @@ func _on_discover_pressed() -> void:
 	if _client == null:
 		_log_line("Not connected.")
 		return
+	var client := _client
 	_discovered_list.clear()
 	_log_line("Discovering devkits on the LAN...")
-	var result := await _client.discover_devices()
+	var result := await client.discover_devices()
+	if _client != client:
+		return
 	if not result.get("ok", false):
 		_log_line("Discover failed: %s" % _error_message(result))
 		return

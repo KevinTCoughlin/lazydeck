@@ -78,8 +78,20 @@ func request(method: HTTPClient.Method, path: String, body: Dictionary = {}) -> 
 			}
 		}
 
-	var parsed = JSON.parse_string(raw_body.get_string_from_utf8())
+	var body_text := raw_body.get_string_from_utf8()
+	var parsed = JSON.parse_string(body_text)
 	if status >= 200 and status < 300:
+		# JSON.parse_string returns null both for an empty body and for
+		# genuinely malformed JSON (e.g. an HTML error page from a proxy in
+		# front of the service); only the former is a legitimate "no body"
+		# response, so a non-empty body that failed to parse must not be
+		# reported as ok with a silently-null payload.
+		if body_text != "" and parsed == null:
+			return {
+				"ok": false,
+				"status": status,
+				"error": {"kind": "internal", "message": "response body was not valid JSON"}
+			}
 		return {"ok": true, "status": status, "data": parsed}
 
 	var api_error: Dictionary = {
