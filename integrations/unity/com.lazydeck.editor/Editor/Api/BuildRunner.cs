@@ -118,6 +118,27 @@ namespace LazyDeck.Editor.Api
             {
                 return BuildOutcome.Failure("executable name is required");
             }
+            // Must be a bare file name. Path.Combine silently discards
+            // outputDirectory when the second argument is rooted, and a
+            // relative name like "../game.x86_64" escapes it — either way the
+            // player lands somewhere the caller then doesn't deploy, because
+            // the caller uploads outputDirectory. Failing here beats shipping
+            // a deployment that's missing the build.
+            // Checked with explicit separator tests rather than
+            // Path.GetFileName, which historically threw on invalid path
+            // characters — this method's contract is to return a failure, not
+            // to throw.
+            if (Path.IsPathRooted(executableName)
+                || executableName.IndexOf(Path.DirectorySeparatorChar) >= 0
+                || executableName.IndexOf(Path.AltDirectorySeparatorChar) >= 0
+                || executableName == "."
+                || executableName == "..")
+            {
+                return BuildOutcome.Failure(
+                    "executable name must be a bare file name, not a path "
+                        + $"(got \"{executableName}\")"
+                );
+            }
 
             string[] scenes = EnabledScenePaths();
             if (scenes.Length == 0)
