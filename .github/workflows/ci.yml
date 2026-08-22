@@ -116,10 +116,11 @@ jobs:
         run: |
           package="$(find dist -maxdepth 1 -name '*_linux_amd64.deb' -print -quit)"
           test -n "${package}"
-          dpkg-deb --contents "${package}" | grep -Fq './usr/share/man/man1/lazydeck.1'
-          dpkg-deb --contents "${package}" | grep -Fq './usr/share/bash-completion/completions/lazydeck'
-          dpkg-deb --contents "${package}" | grep -Fq './usr/share/zsh/vendor-completions/_lazydeck'
-          dpkg-deb --contents "${package}" | grep -Fq './usr/share/fish/vendor_completions.d/lazydeck.fish'
+          package="$(realpath "${package}")"
+          dpkg-deb --contents "${package}" | grep -F './usr/share/man/man1/lazydeck.1' >/dev/null
+          dpkg-deb --contents "${package}" | grep -F './usr/share/bash-completion/completions/lazydeck' >/dev/null
+          dpkg-deb --contents "${package}" | grep -F './usr/share/zsh/vendor-completions/_lazydeck' >/dev/null
+          dpkg-deb --contents "${package}" | grep -F './usr/share/fish/vendor_completions.d/lazydeck.fish' >/dev/null
           sudo apt-get update
           sudo apt-get install --yes "${package}"
           lazydeck version
