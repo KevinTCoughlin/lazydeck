@@ -16,7 +16,7 @@ extends SceneTree
 # Configuration (all optional, via environment variables):
 #   LAZYDECK_TEST_EXPORT_DIR   where to write the export (default: a temp dir)
 #   LAZYDECK_TEST_DEVICE_ID    device name from devices.toml (default: fixture-deck)
-#   LAZYDECK_TEST_GAME_ID      game id passed to the deploy API (default: lazydeck-integration)
+#   LAZYDECK_TEST_GAME_ID      game id passed to the deploy API (default: lazydeck_integration)
 
 
 func _initialize() -> void:
@@ -42,7 +42,11 @@ func _run() -> void:
 		device_id = "fixture-deck"
 	var game_id := OS.get_environment("LAZYDECK_TEST_GAME_ID")
 	if game_id == "":
-		game_id = "lazydeck-integration"
+		# No '-': deploy's game_id validation rejects it, since a '-'
+		# anywhere in game_id breaks the remote Steam client's
+		# shortcut-registration step on real hardware (see
+		# docs/DEVICE_LAUNCH.md's "Known caveat" section).
+		game_id = "lazydeck_integration"
 
 	var export_result := LazyDeckExportRunner.export_preset(
 		"Linux", export_directory, "lazydeck-godot-demo.x86_64", false
