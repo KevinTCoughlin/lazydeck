@@ -77,6 +77,7 @@ Unity -batchmode -quit -projectPath /path/to/project -logFile - \
   -lazydeckDevice steam-deck \
   -lazydeckGame 480 \
   -lazydeckOutput /path/to/project/Build \
+  -lazydeckLaunchArgs "./MyGame.sh --fullscreen" \
   -lazydeckTarget StandaloneLinux64 \
   -lazydeckDevelopment \
   -lazydeckTimeoutSeconds 900
@@ -89,12 +90,16 @@ Unity -batchmode -quit -projectPath /path/to/project -logFile - \
   -lazydeckLogsDirectory /path/to/logs
 ```
 
-- `BuildAndDeploy` requires `-lazydeckDevice`, `-lazydeckGame`, and an
-  absolute `-lazydeckOutput`; `-lazydeckTarget` (`StandaloneLinux64` or
-  `StandaloneWindows64`, default `StandaloneLinux64`), `-lazydeckExecutable`,
-  `-lazydeckDevelopment` (a flag, no value), and `-lazydeckLaunchArgs` (a
-  whitespace-separated launch command, same as the window's "Launch command"
-  field) are optional.
+- `BuildAndDeploy` requires `-lazydeckDevice`, `-lazydeckGame`, an absolute
+  `-lazydeckOutput`, and `-lazydeckLaunchArgs` (a whitespace-separated launch
+  command, same as the window's "Launch command" field) — unlike the window,
+  which allows an empty launch command, the CLI requires one and fails fast
+  instead of spending a build and an rsync on a deploy that the API always
+  fails once it reaches the Steam-shortcut step without one (see
+  `api/openapi.yaml`'s `deployments.argv`). `-lazydeckTarget`
+  (`StandaloneLinux64` or `StandaloneWindows64`, default `StandaloneLinux64`),
+  `-lazydeckExecutable`, and `-lazydeckDevelopment` (a flag, no value) are
+  optional.
 - `SyncLogs` requires `-lazydeckDevice` and an absolute
   `-lazydeckLogsDirectory`.
 - Both accept `-lazydeckTimeoutSeconds` (default 600) bounding how long they

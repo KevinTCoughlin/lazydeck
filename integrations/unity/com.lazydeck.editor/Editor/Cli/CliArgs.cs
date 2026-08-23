@@ -61,6 +61,18 @@ namespace LazyDeck.Editor.Cli
                 {
                     throw new LazyDeckCliException($"{Prefix}{name} requires a value");
                 }
+                // An omitted value (e.g. "-lazydeckDevice -lazydeckGame 480")
+                // must not be allowed to silently consume the next flag as
+                // this one's value — that would leave "Game" unset instead
+                // of failing on the mistake that actually happened.
+                string next = argv[i + 1];
+                if (next.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new LazyDeckCliException(
+                        $"{Prefix}{name} requires a value, but found another "
+                            + $"{Prefix} flag (\"{next}\") instead"
+                    );
+                }
                 values[name] = argv[++i];
             }
 

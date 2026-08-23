@@ -31,12 +31,16 @@ namespace LazyDeck.Editor.Cli
         private const double ConnectPollIntervalSeconds = 0.25;
 
         /// <summary>
-        /// -lazydeckDevice, -lazydeckGame, and -lazydeckOutput (an absolute
-        /// path) are required. -lazydeckTarget (default StandaloneLinux64),
+        /// -lazydeckDevice, -lazydeckGame, -lazydeckOutput (an absolute
+        /// path), and -lazydeckLaunchArgs are required — the deploy API has
+        /// nothing to launch and always fails once the rsync step finishes
+        /// without an argv (see api/openapi.yaml's deployments.argv and
+        /// internal/client.Client.Deploy's doc comment), so this fails fast
+        /// rather than spending a build and a rsync on a job that cannot
+        /// succeed. -lazydeckTarget (default StandaloneLinux64),
         /// -lazydeckExecutable (default derived from the product name),
-        /// -lazydeckDevelopment (a flag, no value), -lazydeckLaunchArgs (a
-        /// whitespace-separated launch command), and -lazydeckTimeoutSeconds
-        /// (default 600) are optional.
+        /// -lazydeckDevelopment (a flag, no value), and
+        /// -lazydeckTimeoutSeconds (default 600) are optional.
         /// </summary>
         public static void BuildAndDeploy()
         {
@@ -52,7 +56,13 @@ namespace LazyDeck.Editor.Cli
                     BuildRunner.DefaultExecutableName(target)
                 );
                 bool development = args.Flag("Development");
-                string[] argv = ParseArgv(args.GetOrDefault("LaunchArgs", ""));
+                string[] argv = ParseArgv(args.Require("LaunchArgs"));
+                if (argv.Length == 0)
+                {
+                    throw new LazyDeckCliException(
+                        "-lazydeckLaunchArgs must contain at least one token"
+                    );
+                }
                 int timeoutSeconds = args.GetIntOrDefault("TimeoutSeconds", DefaultJobTimeoutSeconds);
 
                 if (!Path.IsPathRooted(outputDirectory))
