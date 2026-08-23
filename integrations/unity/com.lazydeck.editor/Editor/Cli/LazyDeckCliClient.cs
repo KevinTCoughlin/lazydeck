@@ -126,11 +126,18 @@ namespace LazyDeck.Editor.Cli
                 request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
             }
 
-            HttpResponseMessage response;
+            bool success;
+            int statusCode;
             string body;
             try
             {
-                response = _http.SendAsync(request).ConfigureAwait(false).GetAwaiter().GetResult();
+                using HttpResponseMessage response = _http
+                    .SendAsync(request)
+                    .ConfigureAwait(false)
+                    .GetAwaiter()
+                    .GetResult();
+                success = response.IsSuccessStatusCode;
+                statusCode = (int)response.StatusCode;
                 body = response.Content.ReadAsStringAsync().ConfigureAwait(false).GetAwaiter().GetResult();
             }
             catch (Exception e) when (e is HttpRequestException || e is TaskCanceledException)
@@ -138,12 +145,12 @@ namespace LazyDeck.Editor.Cli
                 throw new LazyDeckCliException($"request to {path} did not complete: {e.Message}");
             }
 
-            if (response.IsSuccessStatusCode)
+            if (success)
             {
                 return body;
             }
 
-            string message = $"request failed with status {(int)response.StatusCode}";
+            string message = $"request failed with status {statusCode}";
             if (!string.IsNullOrEmpty(body))
             {
                 try

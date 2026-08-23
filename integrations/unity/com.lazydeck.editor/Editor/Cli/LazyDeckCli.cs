@@ -144,8 +144,14 @@ namespace LazyDeck.Editor.Cli
                 for (int attempt = 0; attempt < ConnectPollAttempts && !located.Ok; attempt++)
                 {
                     Thread.Sleep(TimeSpan.FromSeconds(ConnectPollIntervalSeconds));
+                    // There is no EditorWindow polling DrainMessages every OnGUI
+                    // here, so a startup failure's stderr — the most actionable
+                    // diagnostic available — would otherwise sit undrained and
+                    // never reach the batch-mode log.
+                    ServerLauncher.DrainMessages(Log);
                     located = ConnectionLocator.Load();
                 }
+                ServerLauncher.DrainMessages(Log);
                 if (!located.Ok)
                 {
                     throw new LazyDeckCliException($"lazydeck serve did not start in time: {located.Error}");
