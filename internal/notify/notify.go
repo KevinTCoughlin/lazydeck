@@ -9,18 +9,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
 
 // Event is the information a webhook notification is built from. It mirrors
-// the subset of jobs.Snapshot that's meaningful outside the process.
+// the subset of jobs.Snapshot that's meaningful outside the process. Field
+// names use JSON tags matching the snake_case used elsewhere in the API
+// (e.g. jobs.Snapshot) since this struct is sent as-is to any non-Discord/
+// Slack endpoint.
 type Event struct {
-	DeviceID  string
-	Operation string
-	Succeeded bool
-	Message   string
-	Time      time.Time
+	DeviceID  string    `json:"device_id"`
+	Operation string    `json:"operation"`
+	Succeeded bool      `json:"succeeded"`
+	Message   string    `json:"message,omitempty"`
+	Time      time.Time `json:"time"`
 }
 
 // Sender delivers an Event to one destination.
@@ -77,13 +81,36 @@ func (w *Webhook) Send(ctx context.Context, ev Event) error {
 func (w *Webhook) payload(ev Event) any {
 	text := formatText(ev)
 	switch {
-	case strings.Contains(w.URL, "discord.com/api/webhooks") || strings.Contains(w.URL, "discordapp.com/api/webhooks"):
+	case isDiscordWebhook(w.URL):
 		return discordPayload{Content: text}
-	case strings.Contains(w.URL, "hooks.slack.com"):
+	case isSlackWebhook(w.URL):
 		return slackPayload{Text: text}
 	default:
 		return ev
 	}
+}
+
+// isDiscordWebhook and isSlackWebhook match on the URL's parsed host (and,
+// for Discord, its path prefix) rather than substring-matching the whole
+// URL, so a self-hosted endpoint whose path or query happens to contain
+// "hooks.slack.com" or "discord.com/api/webhooks" isn't misdetected as the
+// real thing and sent the wrong payload schema. An unparseable URL matches
+// neither and falls through to the generic payload.
+func isDiscordWebhook(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return (host == "discord.com" || host == "discordapp.com") && strings.HasPrefix(u.Path, "/api/webhooks")
+}
+
+func isSlackWebhook(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return strings.ToLower(u.Hostname()) == "hooks.slack.com"
 }
 
 // discordPayload is the minimal shape a Discord incoming webhook accepts:

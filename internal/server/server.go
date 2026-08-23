@@ -119,7 +119,14 @@ func notifyJobComplete(fanout notify.Fanout, snap jobs.Snapshot) {
 		Operation: snap.Operation,
 		Succeeded: snap.Status == jobs.Succeeded,
 		Message:   snap.LastMessage,
-		Time:      time.Now(),
+	}
+	// FinishedAt is always set once a job has reached a terminal status
+	// (see jobs.Job.markFinished), so this is the job's actual completion
+	// time rather than whenever this callback happened to run.
+	if snap.FinishedAt != nil {
+		ev.Time = *snap.FinishedAt
+	} else {
+		ev.Time = time.Now()
 	}
 	if snap.Error != nil {
 		ev.Message = snap.Error.Message
@@ -128,7 +135,9 @@ func notifyJobComplete(fanout notify.Fanout, snap jobs.Snapshot) {
 		ctx, cancel := context.WithTimeout(context.Background(), notifyBudget)
 		defer cancel()
 		if err := fanout.Send(ctx, ev); err != nil {
-			log.Printf("lazydeck serve: webhook notification failed: %v", err)
+			// The webhook URL itself is deliberately not logged: it's a
+			// bearer credential for posting into the destination channel.
+			log.Printf("lazydeck serve: webhook notification failed for %s job on device %q: %v", snap.Operation, snap.DeviceID, err)
 		}
 	}()
 }

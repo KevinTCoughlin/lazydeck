@@ -120,6 +120,10 @@ func TestCancelWhileRunningStopsTheJob(t *testing.T) {
 
 func TestCancelWhileQueuedNeverRuns(t *testing.T) {
 	m := NewManager(1)
+
+	onComplete := make(chan Snapshot, 2)
+	m.SetOnComplete(func(snap Snapshot) { onComplete <- snap })
+
 	blockerStarted := make(chan struct{})
 	blockerRelease := make(chan struct{})
 	blocker, err := m.Submit("deck-1", "deploy", func(ctx context.Context, report func(string)) error {
@@ -148,6 +152,17 @@ func TestCancelWhileQueuedNeverRuns(t *testing.T) {
 	snap := waitTerminal(t, queued, time.Second)
 	if snap.Status != Cancelled {
 		t.Fatalf("status = %s, want cancelled", snap.Status)
+	}
+
+	// onComplete must fire for this early-return-while-queued cancellation
+	// path too, not just the normal run-to-completion path in execute.
+	select {
+	case got := <-onComplete:
+		if got.ID != queued.ID || got.Status != Cancelled {
+			t.Fatalf("onComplete snapshot = %#v, want the queued job cancelled", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("onComplete was not called for the queued-then-cancelled job")
 	}
 
 	close(blockerRelease)

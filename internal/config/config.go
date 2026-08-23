@@ -149,6 +149,7 @@ func AddDevice(path string, cfg *Config, d Device) error {
 	staged := &Config{
 		Devices:                append(append([]Device(nil), cfg.Devices...), d),
 		RefreshIntervalSeconds: cfg.RefreshIntervalSeconds,
+		Webhooks:               cfg.Webhooks,
 	}
 	if err := Save(path, staged); err != nil {
 		return err

@@ -300,7 +300,7 @@ func (m *Manager) execute(ctx context.Context, job *Job, run Run) {
 	case m.sem <- struct{}{}:
 		defer func() { <-m.sem }()
 	case <-ctx.Done():
-		job.markFinished(Cancelled, "cancelled while queued", nil)
+		m.finish(job, Cancelled, "cancelled while queued", nil)
 		return
 	}
 
@@ -309,7 +309,7 @@ func (m *Manager) execute(ctx context.Context, job *Job, run Run) {
 	// at that exact instant could still win the slot. Recheck ctx.Err()
 	// before doing anything observable.
 	if ctx.Err() != nil {
-		job.markFinished(Cancelled, "cancelled while queued", nil)
+		m.finish(job, Cancelled, "cancelled while queued", nil)
 		return
 	}
 
@@ -323,19 +323,35 @@ func (m *Manager) execute(ctx context.Context, job *Job, run Run) {
 	// misreport a cancelled deploy as failed.
 	switch {
 	case ctx.Err() != nil:
-		job.markFinished(Cancelled, "cancelled", nil)
+		m.finish(job, Cancelled, "cancelled", nil)
 	case err == nil:
-		job.markFinished(Succeeded, "completed", nil)
+		m.finish(job, Succeeded, "completed", nil)
 	default:
-		job.markFinished(Failed, "failed", classifyError(err))
+		m.finish(job, Failed, "failed", classifyError(err))
 	}
+}
+
+// finish marks job terminal and invokes the registered onComplete hook, if
+// any, with its final Snapshot. It is the single path to a terminal state
+// (including both early-cancel returns in execute) so onComplete is called
+// consistently for every terminal status, matching SetOnComplete's
+// documented behavior. onComplete is called under a recover guard: a panic
+// in a notification hook must not take down the whole serve process.
+func (m *Manager) finish(job *Job, status Status, message string, jobErr *Error) {
+	job.markFinished(status, message, jobErr)
 
 	m.mu.Lock()
 	onComplete := m.onComplete
 	m.mu.Unlock()
-	if onComplete != nil {
-		onComplete(job.Snapshot())
+	if onComplete == nil {
+		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("lazydeck: job completion hook panicked: %v", r)
+		}
+	}()
+	onComplete(job.Snapshot())
 }
 
 // Shutdown cancels every tracked job (a no-op on ones already terminal)

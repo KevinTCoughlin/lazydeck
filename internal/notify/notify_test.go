@@ -9,22 +9,18 @@ import (
 	"testing"
 )
 
-func TestWebhookSendFormatsDiscordPayload(t *testing.T) {
-	var gotBody discordPayload
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Fatalf("decoding request body: %v", err)
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
-
-	w := NewWebhook(srv.URL + "/discord.com/api/webhooks/123/abc")
-	ev := Event{DeviceID: "deck-1", Operation: "deploy", Succeeded: true}
-	if err := w.Send(context.Background(), ev); err != nil {
-		t.Fatalf("Send: %v", err)
+func TestWebhookFormatsDiscordPayload(t *testing.T) {
+	// Discord/Slack detection is host-based (see isDiscordWebhook), so it
+	// can't be exercised end-to-end against an httptest server (whose host
+	// is 127.0.0.1); this checks the payload building directly instead.
+	// The generic (non-Discord/Slack) path is covered end-to-end by
+	// TestWebhookSendFormatsGenericPayload below.
+	w := &Webhook{URL: "https://discord.com/api/webhooks/123/abc"}
+	payload, ok := w.payload(Event{DeviceID: "deck-1", Operation: "deploy", Succeeded: true}).(discordPayload)
+	if !ok {
+		t.Fatalf("payload = %#v, want discordPayload", payload)
 	}
-	if gotBody.Content == "" {
+	if payload.Content == "" {
 		t.Fatalf("expected non-empty Discord content field")
 	}
 }
@@ -71,6 +67,10 @@ func TestPayloadDetection(t *testing.T) {
 		{"https://discordapp.com/api/webhooks/1/token", "discord"},
 		{"https://hooks.slack.com/services/T/B/X", "slack"},
 		{"https://example.com/hook", "generic"},
+		// A non-Discord/Slack host whose path/query merely contains the
+		// detection substrings must not be misdetected as the real thing.
+		{"https://example.com/discord.com/api/webhooks/1/token", "generic"},
+		{"https://example.com/hook?x=hooks.slack.com", "generic"},
 	}
 	for _, tc := range cases {
 		w := &Webhook{URL: tc.url}
