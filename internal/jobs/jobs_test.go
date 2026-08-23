@@ -291,3 +291,30 @@ func TestPruneEvictsOldestTerminalJobsBeyondCap(t *testing.T) {
 		t.Fatalf("newest job should still be retained: %v", err)
 	}
 }
+
+func TestSetOnCompleteCalledWithFinalSnapshot(t *testing.T) {
+	m := NewManager(1)
+
+	got := make(chan Snapshot, 1)
+	m.SetOnComplete(func(snap Snapshot) { got <- snap })
+
+	job, err := m.Submit("deck-1", "deploy", func(ctx context.Context, report func(string)) error {
+		return errors.New("boom")
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitTerminal(t, job, time.Second)
+
+	select {
+	case snap := <-got:
+		if snap.Status != Failed {
+			t.Fatalf("onComplete snapshot status = %s, want failed", snap.Status)
+		}
+		if snap.DeviceID != "deck-1" || snap.Operation != "deploy" {
+			t.Fatalf("onComplete snapshot = %#v, want deck-1/deploy", snap)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("onComplete was not called within 1s")
+	}
+}

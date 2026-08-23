@@ -109,8 +109,9 @@ Edit `~/.config/lazydeck/devices.toml` (created for you on first run) to
 list your devkits:
 
 ```toml
-# Optional root-level setting; it must precede the first [[device]] table.
+# Optional root-level settings; they must precede the first [[device]] table.
 refresh_interval_seconds = 30
+webhooks = ["https://discord.com/api/webhooks/...", "https://hooks.slack.com/services/..."]
 
 [[device]]
 name = "steam-machine"
@@ -124,6 +125,14 @@ machine = "steamdeck.local"
 
 Periodic background status refresh is off by default; omit
 `refresh_interval_seconds` to refresh only on startup and with the `s` key.
+
+`webhooks` posts a message to each listed URL whenever a deploy or log-sync
+job finishes, success or failure — Discord and Slack incoming webhook URLs
+are detected automatically and formatted natively; any other URL gets a
+generic JSON body, e.g. for a custom IRC bridge. Omit `webhooks` to disable
+notifications entirely (the default). This only applies to jobs run through
+`lazydeck serve`'s API (what the engine integrations use); interactive TUI
+deploys don't go through the job manager and aren't notified.
 
 Don't know the Deck's IP yet? Find it via mDNS/Bonjour (works once the Deck
 is on the same Wi-Fi and Developer Mode pairing is enabled):

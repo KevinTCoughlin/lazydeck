@@ -30,6 +30,12 @@ type Config struct {
 	// default) disables auto-refresh; status is only refreshed on
 	// startup and on the manual 's' keybinding.
 	RefreshIntervalSeconds int `toml:"refresh_interval_seconds"`
+
+	// Webhooks are incoming-webhook URLs notified when a deploy or
+	// log-sync job finishes (success or failure). Discord and Slack
+	// webhook URLs are detected and formatted natively; any other URL
+	// gets a generic JSON body, for a custom bridge (e.g. IRC).
+	Webhooks []string `toml:"webhooks"`
 }
 
 // DefaultPath returns ~/.config/lazydeck/devices.toml, creating the parent
@@ -256,6 +262,11 @@ func writeStarter(path string) error {
 # Uncomment to auto-refresh every device's status on an interval (seconds).
 # Off by default; status still refreshes on startup and on the 's' key.
 # refresh_interval_seconds = 30
+
+# Uncomment to post to chat webhooks when a deploy or log-sync job finishes.
+# Discord and Slack incoming webhook URLs are detected automatically; any
+# other URL gets a generic JSON body (e.g. for a custom IRC bridge).
+# webhooks = ["https://discord.com/api/webhooks/...", "https://hooks.slack.com/services/..."]
 
 # [[device]]
 # name = "steam-machine"

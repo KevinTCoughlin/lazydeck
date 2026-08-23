@@ -202,6 +202,23 @@ type Manager struct {
 	jobs       map[string]*Job
 	jobOrder   []string          // job IDs in creation order, for retention pruning
 	deviceBusy map[string]string // deviceID -> occupying job ID
+
+	// onComplete, if set, is called with every job's final Snapshot once it
+	// reaches a terminal state (see execute). It's used to fan out
+	// completion notifications (e.g. chat webhooks) without the job
+	// execution path knowing about notify.Sender.
+	onComplete func(Snapshot)
+}
+
+// SetOnComplete registers fn to be called with a job's final Snapshot
+// whenever a job finishes (succeeded, failed, or cancelled). fn is called
+// synchronously from the job's own goroutine, so it must not block or
+// panic; a caller wanting to notify a slow endpoint should do so
+// asynchronously inside fn.
+func (m *Manager) SetOnComplete(fn func(Snapshot)) {
+	m.mu.Lock()
+	m.onComplete = fn
+	m.mu.Unlock()
 }
 
 // NewManager returns a Manager that runs at most maxConcurrent jobs at once
@@ -311,6 +328,13 @@ func (m *Manager) execute(ctx context.Context, job *Job, run Run) {
 		job.markFinished(Succeeded, "completed", nil)
 	default:
 		job.markFinished(Failed, "failed", classifyError(err))
+	}
+
+	m.mu.Lock()
+	onComplete := m.onComplete
+	m.mu.Unlock()
+	if onComplete != nil {
+		onComplete(job.Snapshot())
 	}
 }
 

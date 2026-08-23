@@ -27,6 +27,7 @@ import (
 	"github.com/kevintcoughlin/lazydeck/internal/client"
 	"github.com/kevintcoughlin/lazydeck/internal/config"
 	"github.com/kevintcoughlin/lazydeck/internal/jobs"
+	"github.com/kevintcoughlin/lazydeck/internal/notify"
 )
 
 // devkitClient is the subset of *client.Client's methods the API surface
@@ -82,12 +83,54 @@ func New(cli devkitClient, cfg *config.Config, token string) (*Server, error) {
 		}
 		seen[d.Name] = true
 	}
-	return &Server{
+	s := &Server{
 		client: cli,
 		cfg:    cfg,
 		jobs:   jobs.NewManager(maxConcurrentJobs),
 		token:  token,
-	}, nil
+	}
+	if len(cfg.Webhooks) > 0 {
+		fanout := make(notify.Fanout, 0, len(cfg.Webhooks))
+		for _, url := range cfg.Webhooks {
+			fanout = append(fanout, notify.NewWebhook(url))
+		}
+		s.jobs.SetOnComplete(func(snap jobs.Snapshot) {
+			notifyJobComplete(fanout, snap)
+		})
+	}
+	return s, nil
+}
+
+// notifyBudget bounds how long a single webhook fanout may take; it runs in
+// its own goroutine off the job's execution path, so a slow or unreachable
+// webhook can never delay a job being reported terminal to its caller.
+const notifyBudget = 10 * time.Second
+
+// notifyJobComplete fans out a finished job's Snapshot to every configured
+// webhook. Only Succeeded/Failed are notified — Cancelled jobs are almost
+// always a deliberate local action (the "d" cancel keybinding, or process
+// shutdown), not something a team channel needs to hear about.
+func notifyJobComplete(fanout notify.Fanout, snap jobs.Snapshot) {
+	if snap.Status != jobs.Succeeded && snap.Status != jobs.Failed {
+		return
+	}
+	ev := notify.Event{
+		DeviceID:  snap.DeviceID,
+		Operation: snap.Operation,
+		Succeeded: snap.Status == jobs.Succeeded,
+		Message:   snap.LastMessage,
+		Time:      time.Now(),
+	}
+	if snap.Error != nil {
+		ev.Message = snap.Error.Message
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), notifyBudget)
+		defer cancel()
+		if err := fanout.Send(ctx, ev); err != nil {
+			log.Printf("lazydeck serve: webhook notification failed: %v", err)
+		}
+	}()
 }
 
 // Handler returns the full HTTP handler: routing plus the bearer-auth
