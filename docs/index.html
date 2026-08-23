@@ -5,103 +5,175 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>lazydeck — a lazydocker-style TUI for your Steam devkit fleet</title>
 <meta name="description" content="lazydeck is a keyboard-driven terminal UI for managing a fleet of Steam devkits (Steam Deck, Steam Machine) — pairing, deploying builds, checking status, and tailing logs from one panel.">
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d0d0d'/%3E%3Ctext x='32' y='43' font-family='monospace' font-size='30' font-weight='bold' fill='%23ff6600' text-anchor='middle'%3E%3E_%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0d0d0d;
     --panel: #161616;
-    --border: #3a3a3a;
-    --text: #e8e8e8;
-    --dim: #8a8a8a;
+    --panel2: #1c1c1c;
+    --border: #333333;
+    --border-hover: #4d4d4d;
+    --text: #f0f0ee;
+    --dim: #96968f;
     --accent: #ff6600;
     --accent2: #cc5200;
+    --accent-soft: rgba(255, 102, 0, 0.14);
     --ok: #7ee787;
     --warn: #f2cc60;
   }
   * { box-sizing: border-box; }
+  ::selection { background: var(--accent); color: #0d0d0d; }
+  html { scroll-behavior: smooth; }
   body {
     margin: 0;
-    background: radial-gradient(120% 120% at 50% -10%, #241a10 0%, var(--bg) 55%);
+    background:
+      radial-gradient(60% 40% at 85% 0%, rgba(255,102,0,0.10) 0%, transparent 60%),
+      radial-gradient(120% 120% at 50% -10%, #271b0f 0%, var(--bg) 55%);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    line-height: 1.5;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
   }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
+  a { color: var(--accent); text-decoration: none; transition: color .15s ease; }
+  a:hover { color: #ff8533; text-decoration: underline; }
   code, .mono { font-family: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 
   header.hero {
     max-width: 980px;
     margin: 0 auto;
-    padding: 72px 24px 32px;
+    padding: 88px 24px 36px;
     text-align: center;
   }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid rgba(255,102,0,0.35);
+    padding: 5px 14px;
+    border-radius: 999px;
+    margin-bottom: 22px;
+  }
+  .eyebrow .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 8px var(--ok);
+  }
   header.hero h1 {
-    font-size: 2.6rem;
-    margin: 0 0 12px;
-    letter-spacing: -0.02em;
+    font-size: clamp(2.2rem, 5vw, 3.1rem);
+    font-weight: 800;
+    margin: 0 0 16px;
+    letter-spacing: -0.03em;
   }
   header.hero h1 .mono { color: var(--accent); }
   header.hero p.tagline {
     font-size: 1.15rem;
     color: var(--dim);
     max-width: 640px;
-    margin: 0 auto 28px;
+    margin: 0 auto 32px;
   }
-  .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 48px; }
+  .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 52px; }
   .btn {
     display: inline-block;
-    padding: 10px 20px;
-    border-radius: 8px;
+    padding: 11px 22px;
+    border-radius: 9px;
     font-weight: 600;
     font-size: 0.95rem;
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
   }
-  .btn.primary { background: var(--accent); color: #0d0d0d; }
-  .btn.primary:hover { background: #ff8533; text-decoration: none; }
-  .btn.secondary { border: 1px solid var(--border); color: var(--text); }
-  .btn.secondary:hover { border-color: var(--accent); text-decoration: none; }
+  .btn:hover { transform: translateY(-2px); text-decoration: none; }
+  .btn.primary { background: linear-gradient(180deg, #ff7a1f, var(--accent)); color: #170b00; box-shadow: 0 8px 24px rgba(255,102,0,0.28); }
+  .btn.primary:hover { background: linear-gradient(180deg, #ff9142, #ff7a1f); box-shadow: 0 10px 30px rgba(255,102,0,0.4); }
+  .btn.secondary { border: 1px solid var(--border); color: var(--text); background: rgba(255,255,255,0.02); }
+  .btn.secondary:hover { border-color: var(--accent); box-shadow: 0 8px 20px rgba(0,0,0,0.35); }
 
   .screenshot-wrap { max-width: 980px; margin: 0 auto; padding: 0 24px 64px; }
-  .screenshot-wrap img {
-    width: 100%;
-    display: block;
+  .screenshot-frame {
     border-radius: 14px;
     border: 1px solid var(--border);
-    box-shadow: 0 30px 80px rgba(0,0,0,.5);
+    background: var(--panel);
+    box-shadow: 0 30px 90px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,0.02);
+    overflow: hidden;
+    transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
   }
+  .screenshot-frame:hover { border-color: var(--border-hover); transform: translateY(-3px); box-shadow: 0 40px 100px rgba(0,0,0,.6); }
+  .screenshot-titlebar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel2);
+  }
+  .screenshot-titlebar span {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .screenshot-titlebar span:nth-child(1) { background: #ff5f57; }
+  .screenshot-titlebar span:nth-child(2) { background: #febc2e; }
+  .screenshot-titlebar span:nth-child(3) { background: #28c840; }
+  .screenshot-wrap img { width: 100%; display: block; }
   .screenshot-caption {
     text-align: center;
     color: var(--dim);
     font-size: 0.85rem;
-    margin-top: 12px;
+    margin-top: 16px;
   }
 
   section.features {
     max-width: 980px;
     margin: 0 auto;
-    padding: 0 24px 64px;
+    padding: 0 24px 72px;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: 20px;
   }
   .feature {
-    background: var(--panel);
+    background: linear-gradient(180deg, var(--panel2), var(--panel));
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 22px;
+    border-radius: 14px;
+    padding: 24px;
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
   }
-  .feature h3 { margin: 0 0 8px; font-size: 1.05rem; }
+  .feature:hover {
+    transform: translateY(-4px);
+    border-color: rgba(255,102,0,0.4);
+    box-shadow: 0 16px 40px rgba(0,0,0,0.35);
+  }
+  .feature h3 { margin: 0 0 10px; font-size: 1.05rem; font-weight: 700; }
   .feature p { margin: 0; color: var(--dim); font-size: 0.92rem; }
+
+  h2.section-title, section.keys h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
 
   section.install, section.integrations, section.mcp {
     max-width: 760px;
     margin: 0 auto;
-    padding: 0 24px 64px;
+    padding: 0 24px 72px;
   }
   section.install h2, section.integrations h2, section.mcp h2, section.keys h2 {
-    font-size: 1.4rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
     border-bottom: 1px solid var(--border);
-    padding-bottom: 10px;
+    padding-bottom: 12px;
+    margin-bottom: 20px;
   }
   pre.codeblock {
     background: var(--panel);
@@ -110,35 +182,47 @@
     padding: 16px 18px;
     overflow-x: auto;
     font-size: 0.88rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
   }
   .badge-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0; }
   .badge {
     font-size: 0.8rem;
-    padding: 4px 10px;
+    padding: 5px 12px;
     border-radius: 999px;
     border: 1px solid var(--border);
     color: var(--dim);
+    transition: border-color .15s ease, color .15s ease;
   }
+  a.badge:hover { border-color: var(--accent); color: var(--text); text-decoration: none; }
 
-  section.keys { max-width: 760px; margin: 0 auto; padding: 0 24px 64px; }
-  table.keys { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-  table.keys th, table.keys td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  section.keys { max-width: 760px; margin: 0 auto; padding: 0 24px 72px; }
+  table.keys { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+  table.keys th, table.keys td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border); }
   table.keys th { color: var(--dim); font-weight: 600; }
+  table.keys tr:hover td { background: rgba(255,102,0,0.05); }
+  table.keys td.mono { color: var(--accent); }
 
   footer {
     text-align: center;
     color: var(--dim);
     font-size: 0.85rem;
-    padding: 32px 24px 64px;
+    padding: 36px 24px 72px;
     border-top: 1px solid var(--border);
     margin-top: 24px;
   }
   footer a { color: var(--dim); }
+  footer a:hover { color: var(--accent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; }
+  }
 </style>
 </head>
 <body>
 
 <header class="hero">
+  <span class="eyebrow"><span class="dot"></span> Open source · Go + Bubble Tea</span>
   <h1><span class="mono">$</span> lazydeck</h1>
   <p class="tagline">
     A lazydocker-style terminal UI for managing a fleet of Steam devkits —
@@ -154,7 +238,10 @@
 </header>
 
 <div class="screenshot-wrap">
-  <img src="assets/lazydeck-tui.png" alt="lazydeck terminal UI showing a device list panel, detail panel, and activity log, managing three Steam devkits" loading="lazy">
+  <div class="screenshot-frame">
+    <div class="screenshot-titlebar"><span></span><span></span><span></span></div>
+    <img src="assets/lazydeck-tui.png" alt="lazydeck terminal UI showing a device list panel, detail panel, and activity log, managing three Steam devkits" loading="lazy">
+  </div>
   <p class="screenshot-caption">The real lazydeck TUI, live — device list, detail, and activity panels, refreshing status for a small devkit fleet.</p>
 </div>
 
