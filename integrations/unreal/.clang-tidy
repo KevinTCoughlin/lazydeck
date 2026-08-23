@@ -1,0 +1,23 @@
+# clang-tidy config for integrations/unreal/. Scoped to checks that hold up
+# against Unreal's macro-heavy style (UCLASS/UPROPERTY-free here, but still
+# TArray/FString/TSharedPtr-heavy) without requiring a full Unreal Engine
+# include environment to run cleanly — CI does not currently invoke
+# clang-tidy (that needs UE's generated headers, which means a real engine
+# install), so this file is for local use with an Unreal-aware compile_commands.json:
+#   clang-tidy -p <path-to-compile_commands.json> Source/LazyDeckEditor/Private/*.cpp
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-default-member-init,
+  modernize-use-equals-default,
+  performance-*,
+  -performance-avoid-endl,
+  readability-braces-around-statements,
+  readability-redundant-smartptr-get,
+  readability-simplify-boolean-expr
+WarningsAsErrors: ''
+HeaderFilterRegex: 'integrations/unreal/.*'
+FormatStyle: file

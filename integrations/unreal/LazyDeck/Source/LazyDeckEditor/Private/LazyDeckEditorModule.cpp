@@ -1,9 +1,9 @@
 #include "LazyDeckEditorModule.h"
 
 #include "SLazyDeckDevicesPanel.h"
+#include "Widgets/Docking/SDockTab.h"
 #include "WorkspaceMenuStructure.h"
 #include "WorkspaceMenuStructureModule.h"
-#include "Widgets/Docking/SDockTab.h"
 
 #define LOCTEXT_NAMESPACE "FLazyDeckEditorModule"
 
@@ -28,11 +28,7 @@ void FLazyDeckEditorModule::ShutdownModule()
 
 TSharedRef<SDockTab> FLazyDeckEditorModule::SpawnTab(const FSpawnTabArgs& Args)
 {
-	return SNew(SDockTab)
-		.TabRole(ETabRole::NomadTab)
-		[
-			SNew(SLazyDeckDevicesPanel)
-		];
+	return SNew(SDockTab).TabRole(ETabRole::NomadTab)[SNew(SLazyDeckDevicesPanel)];
 }
 
 #undef LOCTEXT_NAMESPACE

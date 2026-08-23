@@ -56,6 +56,26 @@ Copy (or symlink) `LazyDeck/` into your Unreal project's `Plugins/`
 directory, then enable **LazyDeck** in Edit → Plugins (under the Editor
 category) and restart the editor.
 
+## Tooling
+
+- **Style**: `integrations/unreal/.clang-format` pins the code to Epic's
+  Unreal Engine coding standard (tabs, Allman braces, `PascalCase` types).
+  `just lint-unreal` checks it; `just format-unreal` reformats in place.
+  Both need a `clang-format` on `PATH` (any recent LLVM release works; no
+  Unreal Engine install required, since this only touches formatting).
+  CI runs the same check as the **Unreal C++ format** job.
+- **Static analysis**: `integrations/unreal/.clang-tidy` scopes a
+  modernize/bugprone/performance check set for local use once you have an
+  Unreal-aware `compile_commands.json` (that needs a real engine build, so
+  it isn't wired into CI — see the file's header comment for the exact
+  invocation).
+- **Build settings**: `LazyDeckEditor.Build.cs` opts into the modern UE5
+  module defaults new plugin templates use —
+  `DefaultBuildSettings = BuildSettingsVersion.Latest`,
+  `IWYUSupport = IWYUSupport.Full` (strict include-what-you-use), and the
+  engine's current default C++ standard — rather than silently inheriting
+  whatever an older module default would otherwise imply.
+
 ## How it finds `lazydeck serve`
 
 `LazyDeckConnectionLocator` reads the same connection file

@@ -24,194 +24,127 @@
 
 namespace
 {
-	FString ParseJobId(const FString& Body)
+FString ParseJobId(const FString& Body)
+{
+	TSharedPtr<FJsonObject> JsonObject;
+	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
+	if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
 	{
-		TSharedPtr<FJsonObject> JsonObject;
-		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
-		if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
-		{
-			return FString();
-		}
-		const TSharedPtr<FJsonObject>* JobObject;
-		if (!JsonObject->TryGetObjectField(TEXT("job"), JobObject))
-		{
-			return FString();
-		}
-		FString Id;
-		(*JobObject)->TryGetStringField(TEXT("id"), Id);
-		return Id;
+		return FString();
 	}
+	const TSharedPtr<FJsonObject>* JobObject;
+	if (!JsonObject->TryGetObjectField(TEXT("job"), JobObject))
+	{
+		return FString();
+	}
+	FString Id;
+	(*JobObject)->TryGetStringField(TEXT("id"), Id);
+	return Id;
+}
 
-	bool ParseJobStatus(const FString& Body, FString& OutStatus, FString& OutMessage)
+bool ParseJobStatus(const FString& Body, FString& OutStatus, FString& OutMessage)
+{
+	TSharedPtr<FJsonObject> JsonObject;
+	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
+	if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
 	{
-		TSharedPtr<FJsonObject> JsonObject;
-		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
-		if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
-		{
-			return false;
-		}
-		const TSharedPtr<FJsonObject>* JobObject;
-		if (!JsonObject->TryGetObjectField(TEXT("job"), JobObject))
-		{
-			return false;
-		}
-		(*JobObject)->TryGetStringField(TEXT("status"), OutStatus);
-		if (!(*JobObject)->TryGetStringField(TEXT("last_message"), OutMessage))
-		{
-			OutMessage.Empty();
-		}
-		return true;
+		return false;
 	}
+	const TSharedPtr<FJsonObject>* JobObject;
+	if (!JsonObject->TryGetObjectField(TEXT("job"), JobObject))
+	{
+		return false;
+	}
+	(*JobObject)->TryGetStringField(TEXT("status"), OutStatus);
+	if (!(*JobObject)->TryGetStringField(TEXT("last_message"), OutMessage))
+	{
+		OutMessage.Empty();
+	}
+	return true;
+}
 
-	bool IsTerminalStatus(const FString& Status)
-	{
-		return Status == TEXT("succeeded") || Status == TEXT("failed") || Status == TEXT("cancelled");
-	}
+bool IsTerminalStatus(const FString& Status)
+{
+	return Status == TEXT("succeeded") || Status == TEXT("failed") || Status == TEXT("cancelled");
+}
 }
 
 void SLazyDeckDevicesPanel::Construct(const FArguments& InArgs)
 {
 	ChildSlot
-	[
-		SNew(SScrollBox)
-		+ SScrollBox::Slot()
-		[
-			SNew(SVerticalBox)
+		[SNew(SScrollBox) +
+		 SScrollBox::Slot()
+			 [SNew(SVerticalBox)
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(STextBlock).Text(this, &SLazyDeckDevicesPanel::GetStatusText)
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(STextBlock).Text(this, &SLazyDeckDevicesPanel::GetStatusText)]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(SButton)
-				.Text(LOCTEXT("Connect", "Connect"))
-				.IsEnabled_Lambda([this] { return !IsBusy(); })
-				.OnClicked(this, &SLazyDeckDevicesPanel::OnConnectClicked)
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(SButton)
+																 .Text(LOCTEXT("Connect", "Connect"))
+																 .IsEnabled_Lambda([this] { return !IsBusy(); })
+																 .OnClicked(this, &SLazyDeckDevicesPanel::OnConnectClicked)]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(STextBlock).Text(LOCTEXT("DevicesLabel", "Configured devices (devices.toml)"))
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(STextBlock).Text(LOCTEXT("DevicesLabel", "Configured devices (devices.toml)"))]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4).MaxHeight(150)
-			[
-				SAssignNew(DeviceListView, SListView<TSharedPtr<FLazyDeckDeviceRow>>)
-				.ListItemsSource(&Devices)
-				.SelectionMode(ESelectionMode::Single)
-				.OnSelectionChanged_Lambda(
-					[this](TSharedPtr<FLazyDeckDeviceRow> Item, ESelectInfo::Type)
-					{
-						SelectedDevice = Item;
-					})
-				.OnGenerateRow_Lambda(
-					[](TSharedPtr<FLazyDeckDeviceRow> Item, const TSharedRef<STableViewBase>& OwnerTable)
-					{
-						return SNew(STableRow<TSharedPtr<FLazyDeckDeviceRow>>, OwnerTable)
-							[
-								SNew(STextBlock)
-								.Text(FText::FromString(FString::Printf(TEXT("%s (%s)"), *Item->Id, *Item->Machine)))
-							];
-					})
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4).MaxHeight(
+					150)[SAssignNew(DeviceListView, SListView<TSharedPtr<FLazyDeckDeviceRow>>)
+							 .ListItemsSource(&Devices)
+							 .SelectionMode(ESelectionMode::Single)
+							 .OnSelectionChanged_Lambda([this](TSharedPtr<FLazyDeckDeviceRow> Item, ESelectInfo::Type) { SelectedDevice = Item; })
+							 .OnGenerateRow_Lambda(
+								 [](TSharedPtr<FLazyDeckDeviceRow> Item, const TSharedRef<STableViewBase>& OwnerTable)
+								 {
+									 return SNew(
+										 STableRow<TSharedPtr<FLazyDeckDeviceRow>>,
+										 OwnerTable)[SNew(STextBlock).Text(FText::FromString(FString::Printf(TEXT("%s (%s)"), *Item->Id, *Item->Machine)))];
+								 })]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(SButton)
-				.Text(LOCTEXT("PairSelected", "Pair selected device"))
-				.IsEnabled_Lambda([this] { return !IsBusy() && bConnected && SelectedDevice.IsValid(); })
-				.OnClicked(this, &SLazyDeckDevicesPanel::OnPairClicked)
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(SButton)
+																 .Text(LOCTEXT("PairSelected", "Pair selected device"))
+																 .IsEnabled_Lambda([this] { return !IsBusy() && bConnected && SelectedDevice.IsValid(); })
+																 .OnClicked(this, &SLazyDeckDevicesPanel::OnPairClicked)]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(SButton)
-				.Text(LOCTEXT("Discover", "Discover on LAN"))
-				.IsEnabled_Lambda([this] { return !IsBusy() && bConnected; })
-				.OnClicked(this, &SLazyDeckDevicesPanel::OnDiscoverClicked)
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(SButton)
+																 .Text(LOCTEXT("Discover", "Discover on LAN"))
+																 .IsEnabled_Lambda([this] { return !IsBusy() && bConnected; })
+																 .OnClicked(this, &SLazyDeckDevicesPanel::OnDiscoverClicked)]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(STextBlock).Text(LOCTEXT("DeployLabel", "Deploy a build directory"))
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(STextBlock).Text(LOCTEXT("DeployLabel", "Deploy a build directory"))]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SAssignNew(GameIdBox, SEditableTextBox).HintText(LOCTEXT("GameIdHint", "Game ID"))
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SAssignNew(GameIdBox, SEditableTextBox).HintText(LOCTEXT("GameIdHint", "Game ID"))]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().FillWidth(1.0f)
-				[
-					SAssignNew(DeployDirBox, SEditableTextBox)
-					.HintText(LOCTEXT("DeployDirHint", "Absolute path to a staged/cooked build"))
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0, 0, 0)
-				[
-					SNew(SButton)
-					.Text(LOCTEXT("Browse", "Browse..."))
-					.OnClicked(this, &SLazyDeckDevicesPanel::OnBrowseDeployDirClicked)
-				]
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(
+					4)[SNew(SHorizontalBox) +
+					   SHorizontalBox::Slot().FillWidth(
+						   1.0f)[SAssignNew(DeployDirBox, SEditableTextBox).HintText(LOCTEXT("DeployDirHint", "Absolute path to a staged/cooked build"))] +
+					   SHorizontalBox::Slot().AutoWidth().Padding(
+						   4, 0, 0, 0)[SNew(SButton).Text(LOCTEXT("Browse", "Browse...")).OnClicked(this, &SLazyDeckDevicesPanel::OnBrowseDeployDirClicked)]]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(SButton)
-				.Text(LOCTEXT("Deploy", "Deploy"))
-				.IsEnabled_Lambda([this] { return !IsBusy() && bConnected && SelectedDevice.IsValid(); })
-				.OnClicked(this, &SLazyDeckDevicesPanel::OnDeployClicked)
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(SButton)
+																 .Text(LOCTEXT("Deploy", "Deploy"))
+																 .IsEnabled_Lambda([this] { return !IsBusy() && bConnected && SelectedDevice.IsValid(); })
+																 .OnClicked(this, &SLazyDeckDevicesPanel::OnDeployClicked)]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(STextBlock).Text(LOCTEXT("LogsLabel", "Sync logs"))
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(STextBlock).Text(LOCTEXT("LogsLabel", "Sync logs"))]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().FillWidth(1.0f)
-				[
-					SAssignNew(LogsDirBox, SEditableTextBox)
-					.HintText(LOCTEXT("LogsDirHint", "Absolute local directory to sync logs into"))
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0, 0, 0)
-				[
-					SNew(SButton)
-					.Text(LOCTEXT("Browse", "Browse..."))
-					.OnClicked(this, &SLazyDeckDevicesPanel::OnBrowseLogsDirClicked)
-				]
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(
+					4)[SNew(SHorizontalBox) +
+					   SHorizontalBox::Slot().FillWidth(
+						   1.0f)[SAssignNew(LogsDirBox, SEditableTextBox).HintText(LOCTEXT("LogsDirHint", "Absolute local directory to sync logs into"))] +
+					   SHorizontalBox::Slot().AutoWidth().Padding(
+						   4, 0, 0, 0)[SNew(SButton).Text(LOCTEXT("Browse", "Browse...")).OnClicked(this, &SLazyDeckDevicesPanel::OnBrowseLogsDirClicked)]]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(SButton)
-				.Text(LOCTEXT("SyncLogs", "Sync logs from selected device"))
-				.IsEnabled_Lambda([this] { return !IsBusy() && bConnected && SelectedDevice.IsValid(); })
-				.OnClicked(this, &SLazyDeckDevicesPanel::OnSyncLogsClicked)
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(SButton)
+																 .Text(LOCTEXT("SyncLogs", "Sync logs from selected device"))
+																 .IsEnabled_Lambda([this] { return !IsBusy() && bConnected && SelectedDevice.IsValid(); })
+																 .OnClicked(this, &SLazyDeckDevicesPanel::OnSyncLogsClicked)]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4)
-			[
-				SNew(SButton)
-				.Text(LOCTEXT("CancelJob", "Cancel current job"))
-				.IsEnabled_Lambda([this] { return bConnected && !CurrentJobId.IsEmpty(); })
-				.OnClicked(this, &SLazyDeckDevicesPanel::OnCancelJobClicked)
-			]
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(SButton)
+																 .Text(LOCTEXT("CancelJob", "Cancel current job"))
+																 .IsEnabled_Lambda([this] { return bConnected && !CurrentJobId.IsEmpty(); })
+																 .OnClicked(this, &SLazyDeckDevicesPanel::OnCancelJobClicked)]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(4).MaxHeight(200)
-			[
-				SAssignNew(LogBox, SMultiLineEditableTextBox)
-				.IsReadOnly(true)
-				.AutoWrapText(true)
-			]
-		]
-	];
+			  +
+			  SVerticalBox::Slot().AutoHeight().Padding(4).MaxHeight(200)[SAssignNew(LogBox, SMultiLineEditableTextBox).IsReadOnly(true).AutoWrapText(true)]]];
 
 	Connect();
 }
@@ -261,8 +194,7 @@ void SLazyDeckDevicesPanel::Connect()
 		return;
 	}
 
-	const bool bStarted = FLazyDeckServerLauncher::StartIfNeeded(
-		[this](const FString& Line) { AppendLog(Line); });
+	const bool bStarted = FLazyDeckServerLauncher::StartIfNeeded([this](const FString& Line) { AppendLog(Line); });
 
 	if (!bStarted)
 	{
@@ -294,11 +226,8 @@ void SLazyDeckDevicesPanel::OnConnectAttempt(bool bAutoStarted, int32 RemainingA
 	}
 
 	FTimerHandle Unused;
-	GEditor->GetTimerManager()->SetTimer(
-		Unused,
-		FTimerDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnConnectAttempt, bAutoStarted, RemainingAttempts - 1),
-		0.25f,
-		false);
+	GEditor->GetTimerManager()->SetTimer(Unused, FTimerDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnConnectAttempt, bAutoStarted, RemainingAttempts - 1),
+										 0.25f, false);
 }
 
 void SLazyDeckDevicesPanel::OnCapabilitiesResult(FLazyDeckApiResult /*Unused*/, FLazyDeckConnectionInfo Info)
@@ -317,8 +246,7 @@ void SLazyDeckDevicesPanel::OnCapabilitiesResult(FLazyDeckApiResult /*Unused*/, 
 			}
 			Client = NewClient;
 			bConnected = true;
-			StatusText = FString::Printf(
-				TEXT("Connected: %s (pid %d, port %d)"), *Info.ApiVersion, Info.Pid, Info.Port);
+			StatusText = FString::Printf(TEXT("Connected: %s (pid %d, port %d)"), *Info.ApiVersion, Info.Pid, Info.Port);
 			AppendLog(FString::Printf(TEXT("Connected to lazydeck serve at %s"), *Info.BaseUrl));
 			RefreshDevices();
 		}));
@@ -440,17 +368,13 @@ void SLazyDeckDevicesPanel::PairSelected()
 	bBusy = true;
 	const FString DeviceId = SelectedDevice->Id;
 	AppendLog(FString::Printf(TEXT("Pairing %s..."), *DeviceId));
-	Client->PairDevice(
-		DeviceId,
-		FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnPairResult, DeviceId));
+	Client->PairDevice(DeviceId, FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnPairResult, DeviceId));
 }
 
 void SLazyDeckDevicesPanel::OnPairResult(FLazyDeckApiResult Result, FString DeviceId)
 {
 	bBusy = false;
-	AppendLog(Result.bOk
-		? FString::Printf(TEXT("Paired %s."), *DeviceId)
-		: FString::Printf(TEXT("Failed to pair %s: %s"), *DeviceId, *Result.ErrorMessage));
+	AppendLog(Result.bOk ? FString::Printf(TEXT("Paired %s."), *DeviceId) : FString::Printf(TEXT("Failed to pair %s: %s"), *DeviceId, *Result.ErrorMessage));
 }
 
 FReply SLazyDeckDevicesPanel::OnDeployClicked()
@@ -481,9 +405,8 @@ void SLazyDeckDevicesPanel::Deploy()
 	bBusy = true;
 	const FString DeviceId = SelectedDevice->Id;
 	AppendLog(FString::Printf(TEXT("Deploying %s to %s..."), *Directory, *DeviceId));
-	Client->SubmitDeployment(
-		DeviceId, GameId, Directory, /*bDeleteExtraneous=*/ false,
-		FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::TrackJob, FString(TEXT("Deploy"))));
+	Client->SubmitDeployment(DeviceId, GameId, Directory, /*bDeleteExtraneous=*/false,
+							 FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::TrackJob, FString(TEXT("Deploy"))));
 }
 
 FReply SLazyDeckDevicesPanel::OnSyncLogsClicked()
@@ -513,9 +436,7 @@ void SLazyDeckDevicesPanel::SyncLogs()
 	bBusy = true;
 	const FString DeviceId = SelectedDevice->Id;
 	AppendLog(FString::Printf(TEXT("Syncing logs from %s to %s..."), *DeviceId, *Directory));
-	Client->SyncLogs(
-		DeviceId, Directory, FString(),
-		FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::TrackJob, FString(TEXT("Log sync"))));
+	Client->SyncLogs(DeviceId, Directory, FString(), FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::TrackJob, FString(TEXT("Log sync"))));
 }
 
 void SLazyDeckDevicesPanel::TrackJob(FLazyDeckApiResult SubmitResult, FString Label)
@@ -547,9 +468,7 @@ void SLazyDeckDevicesPanel::PollJob(const FString& Label, const FString& JobId)
 		bBusy = false;
 		return;
 	}
-	Client->GetJob(
-		JobId,
-		FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnPollResult, Label, JobId));
+	Client->GetJob(JobId, FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnPollResult, Label, JobId));
 }
 
 void SLazyDeckDevicesPanel::OnPollResult(FLazyDeckApiResult Result, FString Label, FString JobId)
@@ -587,11 +506,7 @@ void SLazyDeckDevicesPanel::OnPollResult(FLazyDeckApiResult Result, FString Labe
 	// Still queued/running: check again shortly. Matches the Godot/Unity
 	// clients' one-second poll cadence.
 	FTimerHandle Unused;
-	GEditor->GetTimerManager()->SetTimer(
-		Unused,
-		FTimerDelegate::CreateSP(this, &SLazyDeckDevicesPanel::PollJob, Label, JobId),
-		1.0f,
-		false);
+	GEditor->GetTimerManager()->SetTimer(Unused, FTimerDelegate::CreateSP(this, &SLazyDeckDevicesPanel::PollJob, Label, JobId), 1.0f, false);
 }
 
 FReply SLazyDeckDevicesPanel::OnCancelJobClicked()
@@ -608,26 +523,24 @@ void SLazyDeckDevicesPanel::CancelCurrentJob()
 	}
 	const FString JobId = CurrentJobId;
 	AppendLog(FString::Printf(TEXT("Cancelling job %s..."), *JobId));
-	Client->CancelJob(
-		JobId,
-		FLazyDeckApiResultDelegate::CreateLambda(
-			[this, JobId](FLazyDeckApiResult Result)
-			{
-				if (!Result.bOk)
-				{
-					AppendLog(FString::Printf(TEXT("Failed to cancel job %s: %s"), *JobId, *Result.ErrorMessage));
-					return;
-				}
-				// If a poll loop is still watching this job it will observe the
-				// cancelled status on its next tick and clear CurrentJobId
-				// itself; if bBusy is already false, nothing else will, so
-				// retire it here rather than leaving Cancel lit forever.
-				if (!bBusy && CurrentJobId == JobId)
-				{
-					AppendLog(FString::Printf(TEXT("Job %s cancellation requested; no longer tracking it."), *JobId));
-					CurrentJobId.Empty();
-				}
-			}));
+	Client->CancelJob(JobId, FLazyDeckApiResultDelegate::CreateLambda(
+								 [this, JobId](FLazyDeckApiResult Result)
+								 {
+									 if (!Result.bOk)
+									 {
+										 AppendLog(FString::Printf(TEXT("Failed to cancel job %s: %s"), *JobId, *Result.ErrorMessage));
+										 return;
+									 }
+									 // If a poll loop is still watching this job it will observe the
+									 // cancelled status on its next tick and clear CurrentJobId
+									 // itself; if bBusy is already false, nothing else will, so
+									 // retire it here rather than leaving Cancel lit forever.
+									 if (!bBusy && CurrentJobId == JobId)
+									 {
+										 AppendLog(FString::Printf(TEXT("Job %s cancellation requested; no longer tracking it."), *JobId));
+										 CurrentJobId.Empty();
+									 }
+								 }));
 }
 
 FReply SLazyDeckDevicesPanel::OnBrowseDeployDirClicked()

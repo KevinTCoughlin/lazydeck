@@ -19,5 +19,8 @@ struct FLazyDeckConnectionInfo
 	FString Token;
 	FString ApiVersion;
 
-	bool IsValid() const { return !BaseUrl.IsEmpty() && !Token.IsEmpty(); }
+	bool IsValid() const
+	{
+		return !BaseUrl.IsEmpty() && !Token.IsEmpty();
+	}
 };

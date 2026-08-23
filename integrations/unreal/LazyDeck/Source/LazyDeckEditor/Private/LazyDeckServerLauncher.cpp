@@ -1,7 +1,7 @@
 #include "LazyDeckServerLauncher.h"
 
-#include "LazyDeckConnectionLocator.h"
 #include "HAL/PlatformProcess.h"
+#include "LazyDeckConnectionLocator.h"
 #include "Misc/Paths.h"
 
 bool FLazyDeckServerLauncher::IsAutoStartEnabled()
@@ -42,10 +42,9 @@ bool FLazyDeckServerLauncher::StartIfNeeded(const TFunction<void(const FString&)
 	// Not tracked with a FProcHandle the plugin waits on: the process is
 	// meant to outlive the editor, matching the Godot/Unity launchers'
 	// intentionally fire-and-forget semantics.
-	const FProcHandle Handle = FPlatformProcess::CreateProc(
-		*Executable, TEXT("serve"),
-		/*bLaunchDetached=*/ true, /*bLaunchHidden=*/ true, /*bLaunchReallyHidden=*/ true,
-		nullptr, /*PriorityModifier=*/ 0, nullptr, nullptr);
+	const FProcHandle Handle = FPlatformProcess::CreateProc(*Executable, TEXT("serve"),
+															/*bLaunchDetached=*/true, /*bLaunchHidden=*/true, /*bLaunchReallyHidden=*/true, nullptr,
+															/*PriorityModifier=*/0, nullptr, nullptr);
 
 	if (!Handle.IsValid())
 	{

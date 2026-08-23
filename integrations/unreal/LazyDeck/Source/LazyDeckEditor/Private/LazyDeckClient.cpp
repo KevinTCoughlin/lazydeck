@@ -16,17 +16,9 @@
 // RequestTimeoutSeconds.
 static constexpr float LazyDeckRequestTimeoutSeconds = 30.0f;
 
-FLazyDeckClient::FLazyDeckClient(const FLazyDeckConnectionInfo& InConnection)
-	: BaseUrl(InConnection.BaseUrl)
-	, Token(InConnection.Token)
-{
-}
+FLazyDeckClient::FLazyDeckClient(const FLazyDeckConnectionInfo& InConnection) : BaseUrl(InConnection.BaseUrl), Token(InConnection.Token) {}
 
-void FLazyDeckClient::Request(
-	const FString& Verb,
-	const FString& Path,
-	const FString& JsonBody,
-	FLazyDeckApiResultDelegate OnComplete) const
+void FLazyDeckClient::Request(const FString& Verb, const FString& Path, const FString& JsonBody, FLazyDeckApiResultDelegate OnComplete) const
 {
 	const TSharedRef<IHttpRequest> HttpRequest = FHttpModule::Get().CreateRequest();
 	HttpRequest->SetURL(BaseUrl + Path);
@@ -123,12 +115,8 @@ void FLazyDeckClient::ListGames(const FString& DeviceId, FLazyDeckApiResultDeleg
 	Request(TEXT("GET"), FString::Printf(TEXT("/v1/devices/%s/games"), *FGenericPlatformHttp::UrlEncode(DeviceId)), FString(), OnComplete);
 }
 
-void FLazyDeckClient::SubmitDeployment(
-	const FString& DeviceId,
-	const FString& GameId,
-	const FString& Directory,
-	bool bDeleteExtraneous,
-	FLazyDeckApiResultDelegate OnComplete) const
+void FLazyDeckClient::SubmitDeployment(const FString& DeviceId, const FString& GameId, const FString& Directory, bool bDeleteExtraneous,
+									   FLazyDeckApiResultDelegate OnComplete) const
 {
 	const TSharedRef<FJsonObject> JsonObject = MakeShared<FJsonObject>();
 	JsonObject->SetStringField(TEXT("game_id"), GameId);
@@ -140,11 +128,7 @@ void FLazyDeckClient::SubmitDeployment(
 	Request(TEXT("POST"), FString::Printf(TEXT("/v1/devices/%s/deployments"), *FGenericPlatformHttp::UrlEncode(DeviceId)), Body, OnComplete);
 }
 
-void FLazyDeckClient::SyncLogs(
-	const FString& DeviceId,
-	const FString& Directory,
-	const FString& GameId,
-	FLazyDeckApiResultDelegate OnComplete) const
+void FLazyDeckClient::SyncLogs(const FString& DeviceId, const FString& Directory, const FString& GameId, FLazyDeckApiResultDelegate OnComplete) const
 {
 	const TSharedRef<FJsonObject> JsonObject = MakeShared<FJsonObject>();
 	JsonObject->SetStringField(TEXT("directory"), Directory);

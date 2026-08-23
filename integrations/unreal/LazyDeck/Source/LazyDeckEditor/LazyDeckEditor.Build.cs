@@ -6,6 +6,16 @@ public class LazyDeckEditor : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// Modern-module defaults recommended for new UE5 plugins: pin to the
+		// current engine build-settings revision rather than silently
+		// inheriting whatever a future engine version changes the default
+		// to, require exact per-file includes (IWYU) instead of relying on
+		// what a shared PCH happens to pull in transitively, and target the
+		// latest C++ standard the engine's toolchain supports.
+		DefaultBuildSettings = BuildSettingsVersion.Latest;
+		IWYUSupport = IWYUSupport.Full;
+		CppStandard = CppStandardVersion.Default;
+
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",

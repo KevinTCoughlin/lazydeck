@@ -135,6 +135,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: shellcheck install.sh packaging/deb/postinstall.sh scripts/*.sh
 
+  unreal-format:
+    name: Unreal C++ format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # No Unreal Engine install here, so this only checks formatting
+      # (integrations/unreal/.clang-format) against Epic's coding standard,
+      # not compilation -- see integrations/unreal/README.md's Validation
+      # status for what still needs a real engine to verify.
+      - name: clang-format --dry-run
+        run: |
+          find integrations/unreal -name '*.h' -o -name '*.cpp' | \
+            xargs clang-format --dry-run --Werror
+
   container:
     name: Container parity (${{ matrix.target }})
     runs-on: ubuntu-latest

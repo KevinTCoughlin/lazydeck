@@ -50,12 +50,8 @@ public:
 	 * OnComplete) with the queued job's snapshot; poll GetJob to observe
 	 * progress.
 	 */
-	void SubmitDeployment(
-		const FString& DeviceId,
-		const FString& GameId,
-		const FString& Directory,
-		bool bDeleteExtraneous,
-		FLazyDeckApiResultDelegate OnComplete) const;
+	void SubmitDeployment(const FString& DeviceId, const FString& GameId, const FString& Directory, bool bDeleteExtraneous,
+						  FLazyDeckApiResultDelegate OnComplete) const;
 
 	/**
 	 * Submits a log-sync job for DeviceId. GameId is accepted for forward
@@ -63,21 +59,13 @@ public:
 	 * the device's complete Steam logs/minidumps) — see api/openapi.yaml.
 	 * Pass an empty GameId to omit it from the request body.
 	 */
-	void SyncLogs(
-		const FString& DeviceId,
-		const FString& Directory,
-		const FString& GameId,
-		FLazyDeckApiResultDelegate OnComplete) const;
+	void SyncLogs(const FString& DeviceId, const FString& Directory, const FString& GameId, FLazyDeckApiResultDelegate OnComplete) const;
 
 	void GetJob(const FString& JobId, FLazyDeckApiResultDelegate OnComplete) const;
 	void CancelJob(const FString& JobId, FLazyDeckApiResultDelegate OnComplete) const;
 
 private:
-	void Request(
-		const FString& Verb,
-		const FString& Path,
-		const FString& JsonBody,
-		FLazyDeckApiResultDelegate OnComplete) const;
+	void Request(const FString& Verb, const FString& Path, const FString& JsonBody, FLazyDeckApiResultDelegate OnComplete) const;
 
 	FString BaseUrl;
 	FString Token;

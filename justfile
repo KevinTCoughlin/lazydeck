@@ -35,6 +35,17 @@ lint:
     if command -v golangci-lint >/dev/null; then golangci-lint run ./...; else go vet ./...; fi
     cd {{python_dir}} && uv run --frozen ruff check .
     shellcheck install.sh packaging/deb/postinstall.sh scripts/*.sh
+    if command -v clang-format >/dev/null; then just lint-unreal; fi
+
+# Check integrations/unreal/'s C++ against its .clang-format (Epic's coding
+# standard: tabs, Allman braces). Formatting only -- verifying it actually
+# compiles needs a real Unreal Engine install, see integrations/unreal/README.md.
+lint-unreal:
+    find integrations/unreal -name '*.h' -o -name '*.cpp' | xargs clang-format --dry-run --Werror
+
+# Reformat integrations/unreal/'s C++ in place to match .clang-format.
+format-unreal:
+    find integrations/unreal -name '*.h' -o -name '*.cpp' | xargs clang-format -i
 
 # CI-equivalent correctness checks (see scripts/ci.sh, the single source
 # of truth also used by the Containerfile's `ci` stage).

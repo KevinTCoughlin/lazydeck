@@ -67,7 +67,10 @@ private:
 	FReply OnCancelJobClicked();
 	FReply OnBrowseDeployDirClicked();
 	FReply OnBrowseLogsDirClicked();
-	bool IsBusy() const { return bBusy; }
+	bool IsBusy() const
+	{
+		return bBusy;
+	}
 	void AppendLog(const FString& Line);
 
 	TSharedPtr<FLazyDeckClient> Client;
