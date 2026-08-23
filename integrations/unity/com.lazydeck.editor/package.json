@@ -1,6 +1,6 @@
 {
   "name": "com.lazydeck.editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "LazyDeck",
   "description": "Discover, pair, and inspect Steam Deck / Steam Machine devkits from the Unity Editor, via lazydeck's local service API (`lazydeck serve`).",
   "unity": "2023.1",
