@@ -116,12 +116,22 @@ void FLazyDeckClient::ListGames(const FString& DeviceId, FLazyDeckApiResultDeleg
 }
 
 void FLazyDeckClient::SubmitDeployment(const FString& DeviceId, const FString& GameId, const FString& Directory, bool bDeleteExtraneous,
-									   FLazyDeckApiResultDelegate OnComplete) const
+									   const TArray<FString>& Argv, FLazyDeckApiResultDelegate OnComplete) const
 {
 	const TSharedRef<FJsonObject> JsonObject = MakeShared<FJsonObject>();
 	JsonObject->SetStringField(TEXT("game_id"), GameId);
 	JsonObject->SetStringField(TEXT("directory"), Directory);
 	JsonObject->SetBoolField(TEXT("delete_extraneous"), bDeleteExtraneous);
+	if (Argv.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> ArgvValues;
+		ArgvValues.Reserve(Argv.Num());
+		for (const FString& Arg : Argv)
+		{
+			ArgvValues.Add(MakeShared<FJsonValueString>(Arg));
+		}
+		JsonObject->SetArrayField(TEXT("argv"), ArgvValues);
+	}
 	FString Body;
 	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Body);
 	FJsonSerializer::Serialize(JsonObject, Writer);

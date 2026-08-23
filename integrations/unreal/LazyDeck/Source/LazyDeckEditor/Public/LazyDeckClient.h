@@ -46,11 +46,14 @@ public:
 	/**
 	 * Submits a deploy job for DeviceId. Directory must be an absolute path
 	 * on this workstation (the API rejects a relative one — see
-	 * api/openapi.yaml's deployments endpoint). Returns immediately (via
+	 * api/openapi.yaml's deployments endpoint). Argv, when non-empty, is
+	 * the command-line the resulting Steam shortcut launches with (see
+	 * api/openapi.yaml's deployments endpoint); omit it to leave the
+	 * shortcut without a launch command. Returns immediately (via
 	 * OnComplete) with the queued job's snapshot; poll GetJob to observe
 	 * progress.
 	 */
-	void SubmitDeployment(const FString& DeviceId, const FString& GameId, const FString& Directory, bool bDeleteExtraneous,
+	void SubmitDeployment(const FString& DeviceId, const FString& GameId, const FString& Directory, bool bDeleteExtraneous, const TArray<FString>& Argv,
 						  FLazyDeckApiResultDelegate OnComplete) const;
 
 	/**

@@ -67,6 +67,19 @@ bool IsTerminalStatus(const FString& Status)
 {
 	return Status == TEXT("succeeded") || Status == TEXT("failed") || Status == TEXT("cancelled");
 }
+
+/**
+ * Splits a whitespace-separated launch command into argv tokens for the
+ * deployments endpoint's optional argv field (api/openapi.yaml). No quoting
+ * support is offered; this mirrors the simple space-splitting expectation
+ * set by the field's own example (["./MyGame.sh", "--fullscreen"]).
+ */
+TArray<FString> ParseArgv(const FString& LaunchCommand)
+{
+	TArray<FString> Argv;
+	LaunchCommand.ParseIntoArrayWS(Argv);
+	return Argv;
+}
 }
 
 void SLazyDeckDevicesPanel::Construct(const FArguments& InArgs)
@@ -118,6 +131,10 @@ void SLazyDeckDevicesPanel::Construct(const FArguments& InArgs)
 						   1.0f)[SAssignNew(DeployDirBox, SEditableTextBox).HintText(LOCTEXT("DeployDirHint", "Absolute path to a staged/cooked build"))] +
 					   SHorizontalBox::Slot().AutoWidth().Padding(
 						   4, 0, 0, 0)[SNew(SButton).Text(LOCTEXT("Browse", "Browse...")).OnClicked(this, &SLazyDeckDevicesPanel::OnBrowseDeployDirClicked)]]
+
+			  +
+			  SVerticalBox::Slot().AutoHeight().Padding(4)[SAssignNew(LaunchArgsBox, SEditableTextBox)
+															   .HintText(LOCTEXT("LaunchArgsHint", "Launch command (optional), e.g. ./MyGame.sh --fullscreen"))]
 
 			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(SButton)
 																 .Text(LOCTEXT("Deploy", "Deploy"))
@@ -409,8 +426,10 @@ void SLazyDeckDevicesPanel::Deploy()
 
 	bBusy = true;
 	const FString DeviceId = SelectedDevice->Id;
+	const FString LaunchCommand = LaunchArgsBox.IsValid() ? LaunchArgsBox->GetText().ToString().TrimStartAndEnd() : FString();
+	const TArray<FString> Argv = ParseArgv(LaunchCommand);
 	AppendLog(FString::Printf(TEXT("Deploying %s to %s..."), *Directory, *DeviceId));
-	Client->SubmitDeployment(DeviceId, GameId, Directory, /*bDeleteExtraneous=*/false,
+	Client->SubmitDeployment(DeviceId, GameId, Directory, /*bDeleteExtraneous=*/false, Argv,
 							 FLazyDeckApiResultDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::TrackJob, FString(TEXT("Deploy"))));
 }
 

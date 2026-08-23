@@ -168,24 +168,39 @@ namespace LazyDeck.Editor.Api
         /// <summary>
         /// Submits a deploy job for deviceId. directory must be an absolute
         /// path on this workstation (the API rejects a relative one — see
-        /// api/openapi.yaml's deployments endpoint). Returns immediately with
+        /// api/openapi.yaml's deployments endpoint). argv, when non-null and
+        /// non-empty, is the command-line the resulting Steam shortcut
+        /// launches with (see api/openapi.yaml's deployments endpoint);
+        /// pass null or an empty array to omit it. Returns immediately with
         /// the queued job's snapshot; poll GetJobAsync to observe progress.
         /// </summary>
         public Awaitable<ApiResult> SubmitDeploymentAsync(
             string deviceId,
             string gameId,
             string directory,
-            bool deleteExtraneous = false
+            bool deleteExtraneous = false,
+            string[] argv = null
         )
         {
-            string body = JsonUtility.ToJson(
-                new DeploymentRequest
-                {
-                    game_id = gameId,
-                    directory = directory,
-                    delete_extraneous = deleteExtraneous,
-                }
-            );
+            string body =
+                argv != null && argv.Length > 0
+                    ? JsonUtility.ToJson(
+                        new DeploymentRequestWithArgv
+                        {
+                            game_id = gameId,
+                            directory = directory,
+                            delete_extraneous = deleteExtraneous,
+                            argv = argv,
+                        }
+                    )
+                    : JsonUtility.ToJson(
+                        new DeploymentRequest
+                        {
+                            game_id = gameId,
+                            directory = directory,
+                            delete_extraneous = deleteExtraneous,
+                        }
+                    );
             return RequestAsync(
                 "POST",
                 $"/v1/devices/{UnityWebRequest.EscapeURL(deviceId)}/deployments",
@@ -239,6 +254,15 @@ namespace LazyDeck.Editor.Api
             public string game_id;
             public string directory;
             public bool delete_extraneous;
+        }
+
+        [Serializable]
+        private sealed class DeploymentRequestWithArgv
+        {
+            public string game_id;
+            public string directory;
+            public bool delete_extraneous;
+            public string[] argv;
         }
 
         [Serializable]

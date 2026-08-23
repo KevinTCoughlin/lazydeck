@@ -29,6 +29,7 @@ var _debug_check: CheckBox
 var _game_id_field: LineEdit
 var _output_dir_field: LineEdit
 var _executable_name_field: LineEdit
+var _launch_args_field: LineEdit
 var _build_deploy_button: Button
 var _logs_dir_field: LineEdit
 var _sync_logs_button: Button
@@ -165,6 +166,10 @@ func _build_deploy_section(root: VBoxContainer) -> void:
 	_executable_name_field.text = _default_executable_name()
 	root.add_child(_executable_name_field)
 
+	_launch_args_field = LineEdit.new()
+	_launch_args_field.placeholder_text = "Launch command (optional), e.g. ./MyGame.sh --fullscreen"
+	root.add_child(_launch_args_field)
+
 	var export_note := Label.new()
 	export_note.autowrap_mode = TextServer.AUTOWRAP_WORD
 	export_note.text = (
@@ -214,6 +219,24 @@ func _default_executable_name() -> String:
 	non_filename_chars.compile("[^a-z0-9_-]+")
 	var sanitized := non_filename_chars.sub(project_name.to_lower(), "_", true)
 	return sanitized if sanitized != "" else "game"
+
+
+## Splits a whitespace-separated launch command into argv tokens for the
+## deployments endpoint's optional argv field (see api/openapi.yaml). No
+## quoting support is offered; this mirrors the simple space-splitting
+## expectation set by the field's own example (["./MyGame.sh", "--fullscreen"]).
+##
+## Matches runs of non-whitespace characters (rather than splitting on " ")
+## so tabs and repeated spaces between tokens are handled the same way as
+## the Unreal (FString::ParseIntoArrayWS) and Unity (string.Split with a
+## null separator) clients.
+func _parse_argv(launch_command: String) -> PackedStringArray:
+	var tokens := RegEx.new()
+	tokens.compile("\\S+")
+	var argv := PackedStringArray()
+	for m in tokens.search_all(launch_command):
+		argv.append(m.get_string())
+	return argv
 
 
 func _refresh_presets() -> void:
@@ -413,6 +436,7 @@ func _validate_deploy_inputs() -> Dictionary:
 		"output_dir": output_dir,
 		"executable_name": executable_name,
 		"game_id": game_id,
+		"argv": _parse_argv(_launch_args_field.text),
 	}
 
 
@@ -445,7 +469,7 @@ func _on_build_deploy_pressed() -> void:
 
 	_log_line("Export finished. Deploying %s to %s..." % [params.output_dir, params.device_id])
 	var submit_result := await client.submit_deployment(
-		params.device_id, params.game_id, params.output_dir
+		params.device_id, params.game_id, params.output_dir, false, params.argv
 	)
 	if _client != client:
 		return

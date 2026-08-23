@@ -88,6 +88,7 @@ private:
 
 	TSharedPtr<SEditableTextBox> GameIdBox;
 	TSharedPtr<SEditableTextBox> DeployDirBox;
+	TSharedPtr<SEditableTextBox> LaunchArgsBox;
 	TSharedPtr<SEditableTextBox> LogsDirBox;
 	TSharedPtr<SMultiLineEditableTextBox> LogBox;
 	FString LogText;
