@@ -61,6 +61,58 @@ Practical consequences:
   build output as project assets on the next refresh (the default is a
   `Build/` folder beside `Assets/`).
 
+## Batch-mode / CI usage
+
+`Editor/Cli/LazyDeckCli.cs` exposes the same build/deploy/log-sync
+operations as the window through Unity's own
+[`-batchmode -quit -executeMethod`](https://docs.unity3d.com/Manual/EditorCommandLineArguments.html)
+entry points, so a CI job can drive them without an interactive Editor —
+the Unity counterpart of the Godot integration shelling out to `godot
+--headless --export-*`. Options are passed as `-lazydeck<Name>`
+command-line flags rather than read from the window's fields.
+
+```bash
+Unity -batchmode -quit -projectPath /path/to/project -logFile - \
+  -executeMethod LazyDeck.Editor.Cli.LazyDeckCli.BuildAndDeploy \
+  -lazydeckDevice steam-deck \
+  -lazydeckGame 480 \
+  -lazydeckOutput /path/to/project/Build \
+  -lazydeckLaunchArgs "./MyGame.sh --fullscreen" \
+  -lazydeckTarget StandaloneLinux64 \
+  -lazydeckDevelopment \
+  -lazydeckTimeoutSeconds 900
+```
+
+```bash
+Unity -batchmode -quit -projectPath /path/to/project -logFile - \
+  -executeMethod LazyDeck.Editor.Cli.LazyDeckCli.SyncLogs \
+  -lazydeckDevice steam-deck \
+  -lazydeckLogsDirectory /path/to/logs
+```
+
+- `BuildAndDeploy` requires `-lazydeckDevice`, `-lazydeckGame`, an absolute
+  `-lazydeckOutput`, and `-lazydeckLaunchArgs` (a whitespace-separated launch
+  command, same as the window's "Launch command" field) — unlike the window,
+  which allows an empty launch command, the CLI requires one and fails fast
+  instead of spending a build and an rsync on a deploy that the API always
+  fails once it reaches the Steam-shortcut step without one (see
+  `api/openapi.yaml`'s `deployments.argv`). `-lazydeckTarget`
+  (`StandaloneLinux64` or `StandaloneWindows64`, default `StandaloneLinux64`),
+  `-lazydeckExecutable`, and `-lazydeckDevelopment` (a flag, no value) are
+  optional.
+- `SyncLogs` requires `-lazydeckDevice` and an absolute
+  `-lazydeckLogsDirectory`.
+- Both accept `-lazydeckTimeoutSeconds` (default 600) bounding how long they
+  poll the submitted job before failing.
+- Progress and errors go to `Debug.Log`, which Unity's `-logFile` captures.
+  On failure they call `EditorApplication.Exit(1)`, since a batch-mode
+  process otherwise exits 0 regardless of whether the executed method
+  actually succeeded — check the process exit code in CI, not just the log.
+- Auto-starting `lazydeck serve` and locating its connection file work the
+  same as the window (see "How it finds `lazydeck serve`" below); set
+  `LAZYDECK_AUTOSTART=0`/`LAZYDECK_BIN` the same way if the CI runner needs
+  different behavior.
+
 ## Requirements
 
 - Unity **2023.1** or newer (including Unity 6) — the package uses the
@@ -89,12 +141,12 @@ else in it.
 The connect/devices/discover/pair sources compile without warnings
 against Unity 6.5's real managed editor assemblies.
 
-**The build/deploy/logs/cancel additions, and `Editor/Api/ServerLauncher.cs`
-(auto-starting `lazydeck serve`), have not been compiled against
-anything.** They were written without a Unity Editor or any C# compiler
-available, so they carry the same caveat the connect slice originally
-did — see the note in issue #23. The pieces most worth checking first in
-a real editor:
+**The build/deploy/logs/cancel additions, `Editor/Api/ServerLauncher.cs`
+(auto-starting `lazydeck serve`), and the `Editor/Cli/` batch-mode entry
+points have not been compiled against anything.** They were written
+without a Unity Editor or any C# compiler available, so they carry the
+same caveat the connect slice originally did — see the note in issue
+#23. The pieces most worth checking first in a real editor:
 
 - `BuildRunner.Build`'s `BuildPlayerOptions` shape and its handling of a
   `BuildReport` whose result isn't `Succeeded`.
@@ -105,6 +157,13 @@ a real editor:
 - `ServerLauncher.StartIfNeeded`'s `Process.Start`/`ProcessStartInfo`
   shape and its cross-thread `ConcurrentQueue` hand-off of the spawned
   process's stderr back onto the main thread via `DrainMessages`.
+- `LazyDeckCli`'s `-executeMethod` entry points end to end: whether Unity
+  actually accepts an `internal` class with `public static` methods there,
+  whether `EditorApplication.Exit(1)` reliably produces a nonzero shell
+  exit code from a batch-mode run, and `LazyDeckCliClient`'s
+  `HttpClient`-based synchronous requests (chosen specifically to sidestep
+  the `Awaitable`/`EditorApplication.update` pump concerns noted above and
+  in `LazyDeckClient`, but unverified against a real batch-mode process).
 
 A full Editor run is also still outstanding: the available local Unity
 installation had no active Editor license, so it could recognize the

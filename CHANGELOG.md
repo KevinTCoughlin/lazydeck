@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Unity package batch-mode CLI (`Editor/Cli/LazyDeckCli.cs`): `BuildAndDeploy`
+  and `SyncLogs` entry points for `-batchmode -quit -executeMethod`, driving
+  the same build/deploy/log-sync operations as the LazyDeck window from CI
+  without opening the Editor UI.
+
 ## [0.2.0] - 2026-08-23
 
 ### Added

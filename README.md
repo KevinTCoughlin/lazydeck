@@ -350,7 +350,9 @@ logs, without leaving the editor:
 - A Godot 4 editor plugin (Godot 4.3+):
   [`integrations/godot`](integrations/godot).
 - A Unity Editor package (Unity 2023.1 or newer, including Unity 6):
-  [`integrations/unity`](integrations/unity).
+  [`integrations/unity`](integrations/unity). Also offers a batch-mode CLI
+  (`-batchmode -quit -executeMethod LazyDeck.Editor.Cli.LazyDeckCli...`) for
+  driving build/deploy/log-sync from CI without opening the Editor UI.
 - An Unreal Engine editor plugin (Unreal 5.x, C++ project):
   [`integrations/unreal`](integrations/unreal). Unlike the other two, it
   does not yet drive Unreal's own cook/package step automatically — see
