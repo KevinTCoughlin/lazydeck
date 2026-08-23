@@ -3,7 +3,6 @@
 [![CI](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/ci.yml/badge.svg)](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/codeql.yml/badge.svg)](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/codeql.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/kevintcoughlin/lazydeck.svg)](https://pkg.go.dev/github.com/kevintcoughlin/lazydeck)
-[![Go Report Card](https://goreportcard.com/badge/github.com/kevintcoughlin/lazydeck)](https://goreportcard.com/report/github.com/kevintcoughlin/lazydeck)
 [![Latest release](https://img.shields.io/github/v/release/KevinTCoughlin/lazydeck)](https://github.com/KevinTCoughlin/lazydeck/releases)
 [![License: MIT](https://img.shields.io/github/license/KevinTCoughlin/lazydeck)](LICENSE)
 
