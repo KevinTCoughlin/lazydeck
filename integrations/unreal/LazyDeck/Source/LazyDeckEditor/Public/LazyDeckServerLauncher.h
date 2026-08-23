@@ -21,9 +21,10 @@ public:
 	/**
 	 * Starts `lazydeck serve` only when no connection file exists at
 	 * FLazyDeckConnectionLocator::DefaultPath(). Returns true if a process
-	 * was launched. A malformed or inaccessible existing file is reported to
-	 * the caller via LogFn rather than spawning over a potentially running
-	 * service.
+	 * was launched. If a file already exists there -- whether it is valid,
+	 * malformed, or inaccessible -- this returns false without spawning over
+	 * a potentially running service; validating that file is left to the
+	 * caller (see FLazyDeckConnectionLocator::Load).
 	 */
 	static bool StartIfNeeded(const TFunction<void(const FString&)>& LogFn);
 };

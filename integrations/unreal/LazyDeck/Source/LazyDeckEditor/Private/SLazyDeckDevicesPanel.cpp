@@ -33,7 +33,7 @@ FString ParseJobId(const FString& Body)
 		return FString();
 	}
 	const TSharedPtr<FJsonObject>* JobObject;
-	if (!JsonObject->TryGetObjectField(TEXT("job"), JobObject))
+	if (!JsonObject->TryGetObjectField(TEXT("job"), JobObject) || !JobObject->IsValid())
 	{
 		return FString();
 	}
@@ -51,7 +51,7 @@ bool ParseJobStatus(const FString& Body, FString& OutStatus, FString& OutMessage
 		return false;
 	}
 	const TSharedPtr<FJsonObject>* JobObject;
-	if (!JsonObject->TryGetObjectField(TEXT("job"), JobObject))
+	if (!JsonObject->TryGetObjectField(TEXT("job"), JobObject) || !JobObject->IsValid())
 	{
 		return false;
 	}

@@ -52,6 +52,12 @@ bool FLazyDeckServerLauncher::StartIfNeeded(const TFunction<void(const FString&)
 		return false;
 	}
 
+	// Fire-and-forget: the process is intentionally not tracked or waited on
+	// (see the comment above), but the FProcHandle itself is an OS resource
+	// local to the editor process and must still be released here to avoid
+	// leaking it.
+	FPlatformProcess::CloseProc(Handle);
+
 	LogFn(FString::Printf(TEXT("Starting lazydeck serve (%s)..."), *Executable));
 	return true;
 }
