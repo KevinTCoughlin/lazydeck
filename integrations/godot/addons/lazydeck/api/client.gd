@@ -149,7 +149,7 @@ func submit_deployment(
 		"delete_extraneous": delete_extraneous,
 	}
 	if not argv.is_empty():
-		body["argv"] = argv
+		body["argv"] = Array(argv)
 	return await request(
 		HTTPClient.METHOD_POST, "/v1/devices/%s/deployments" % device_id.uri_encode(), body
 	)
