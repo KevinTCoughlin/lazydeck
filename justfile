@@ -44,11 +44,15 @@ lint:
 # guarded on a non-empty match so it never runs clang-format with zero files
 # (which would otherwise block reading a dry-run stdin).
 lint-unreal:
+    #!/usr/bin/env bash
+    set -euo pipefail
     mapfile -d '' files < <(find integrations/unreal \( -name '*.h' -o -name '*.cpp' \) -print0)
     if [ "${#files[@]}" -gt 0 ]; then clang-format --dry-run --Werror "${files[@]}"; fi
 
 # Reformat integrations/unreal/'s C++ in place to match .clang-format.
 format-unreal:
+    #!/usr/bin/env bash
+    set -euo pipefail
     mapfile -d '' files < <(find integrations/unreal \( -name '*.h' -o -name '*.cpp' \) -print0)
     if [ "${#files[@]}" -gt 0 ]; then clang-format -i "${files[@]}"; fi
 
