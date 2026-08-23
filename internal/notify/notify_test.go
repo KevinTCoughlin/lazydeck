@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -42,6 +43,22 @@ func TestWebhookSendFormatsGenericPayload(t *testing.T) {
 	}
 	if gotBody.DeviceID != ev.DeviceID || gotBody.Message != ev.Message {
 		t.Fatalf("gotBody = %#v, want fields from %#v", gotBody, ev)
+	}
+}
+
+func TestWebhookSendTransportErrorDoesNotLeakURL(t *testing.T) {
+	// A webhook URL is a bearer credential (the token is embedded in the
+	// path), so a transport failure — which net/http wraps in *url.Error
+	// carrying the full request URL — must not surface that URL in the
+	// error Send returns, since callers log it.
+	const secret = "T000/B111/super-secret-token"
+	w := NewWebhook("http://127.0.0.1:1/" + secret) // nothing listens on port 1: guaranteed connection refused
+	err := w.Send(context.Background(), Event{})
+	if err == nil {
+		t.Fatal("expected a transport error")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("error leaked the webhook URL/secret: %v", err)
 	}
 }
 

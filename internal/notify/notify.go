@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -62,13 +63,13 @@ func (w *Webhook) Send(ctx context.Context, ev Event) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.URL, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("building webhook request: %w", err)
+		return fmt.Errorf("building webhook request: %w", redactURLError(err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := w.HTTPClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("sending webhook: %w", err)
+		return fmt.Errorf("sending webhook: %w", redactURLError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -76,6 +77,19 @@ func (w *Webhook) Send(ctx context.Context, ev Event) error {
 		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// redactURLError strips the target URL out of a *url.Error before it's
+// logged: http.Client.Do wraps transport failures in *url.Error, which
+// embeds the full request URL (including the webhook's secret token) in
+// both its URL field and its Error() string. Any other error is returned
+// unchanged.
+func redactURLError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return &url.Error{Op: urlErr.Op, URL: "[redacted]", Err: urlErr.Err}
+	}
+	return err
 }
 
 func (w *Webhook) payload(ev Event) any {
