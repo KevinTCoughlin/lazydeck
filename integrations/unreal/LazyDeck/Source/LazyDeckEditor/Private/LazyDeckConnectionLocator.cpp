@@ -67,8 +67,16 @@ bool FLazyDeckConnectionLocator::Load(const FString& InPath, FLazyDeckConnection
 	}
 
 	FLazyDeckConnectionInfo Info;
-	JsonObject->TryGetNumberField(TEXT("pid"), Info.Pid);
-	JsonObject->TryGetNumberField(TEXT("port"), Info.Port);
+	// FJsonObject::TryGetNumberField's non-template overload writes to a
+	// double (Unreal JSON numbers are represented as doubles); parse into
+	// one explicitly and narrow to int32 rather than relying on a numeric
+	// out-param overload that isn't guaranteed across engine versions.
+	double PidValue = 0.0;
+	double PortValue = 0.0;
+	JsonObject->TryGetNumberField(TEXT("pid"), PidValue);
+	JsonObject->TryGetNumberField(TEXT("port"), PortValue);
+	Info.Pid = static_cast<int32>(PidValue);
+	Info.Port = static_cast<int32>(PortValue);
 	JsonObject->TryGetStringField(TEXT("base_url"), Info.BaseUrl);
 	JsonObject->TryGetStringField(TEXT("token"), Info.Token);
 	JsonObject->TryGetStringField(TEXT("api_version"), Info.ApiVersion);
