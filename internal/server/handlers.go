@@ -277,6 +277,9 @@ func (s *Server) handleLogsSync(w http.ResponseWriter, r *http.Request) {
 // reports launch/stop as unsupported (see handleCapabilities), and these
 // return the same "unsupported" error rather than a generic 404. This is an
 // intentional supported-surface boundary, not an unimplemented client call.
+// Sending steam:// commands (e.g. rungameid) over the local IPC pipe used by
+// steam-client-create-shortcut was investigated as an alternative and found
+// not viable: see the "Investigated" section in docs/DEVICE_LAUNCH.md.
 func (s *Server) handleLaunch(w http.ResponseWriter, r *http.Request) {
 	writeErrorStatus(w, http.StatusNotImplemented, "unsupported", "remote launch is not supported by the SteamOS devkit protocol; start the title from the device's Steam UI")
 }

@@ -40,3 +40,48 @@ for `list-games`/`delete`/`sync-logs`, which don't go through
 stricter `[A-Za-z0-9._]` rule. If you already have a device with a
 dash-containing shortcut from before this check existed, `delete` it and
 redeploy under a dash-free name.
+
+## Investigated: `steam://` IPC pipe as a launch/stop primitive (not viable)
+
+Valve's own on-device devkit-utils (`devkit_utils.execute_steam_client_command`
+in `~/.local/share/steamos-devkit/client/devkit-utils/devkit_utils/__init__.py`
+on the Steam Deck/Steam Machine itself) writes raw `steam://...` commands to a
+local IPC pipe (`~/.steam/steam.pipe`), scoped by a session token read from
+`~/.steam/steam.token`, in the form:
+
+```
+devkit-1 steam://devkit-1/<session_token>/<cmd>
+```
+
+`steam-client-create-shortcut` — the tool this project already relies on for
+`deploy` — uses exactly this channel to send
+`create-shortcut?response=...&gameid=...`. In principle the same pipe could
+carry other `steam://` verbs, such as `steam://rungameid/<appid>` to launch a
+title, giving `launch_game`/`stop_game` a real implementation.
+
+This was investigated and is **not viable** to ship as a supported feature:
+
+- The pipe protocol is undocumented and closed-source on Steam's end. Valve's
+  own comment describing the `create-shortcut` hack over this pipe literally
+  calls it "a hack" — there is no guarantee any other verb (`rungameid` or a
+  stop/quit equivalent) is accepted by the `devkit-1` session-token-scoped
+  handler, as opposed to the normal `steam://` URI handler.
+- There is no supported devkit protocol primitive for remote launch/stop at
+  all (see `python/vendor/devkit_client/__init__.py`); this would be layering
+  an unsupported, reverse-engineered integration on top of Valve's own
+  internal tooling, with the same risks called out above for `-applaunch`/
+  `pkill`: it could change or break without notice across SteamOS updates,
+  and a malformed or unsupported command written to the pipe risks
+  destabilizing the Steam client or gamescope session on real hardware, with
+  no clean rollback path once a bad command is written.
+- Validating this safely requires careful, deliberate prototyping directly
+  against real Steam Deck/Machine hardware, which is out of scope for this
+  change.
+
+Accordingly, `launch_game`/`stop_game` remain permanent `501 unsupported`
+stubs (see `internal/server/handlers.go`'s `handleLaunch`/`handleStop`), and
+`/v1/capabilities` continues to advertise `launch`/`stop` as `false`. This
+finding is recorded here so future contributors don't have to rediscover it;
+revisiting this would require a maintainer with real hardware access to
+prototype the pipe commands directly, observe the Steam client's behavior,
+and have a clear abort/rollback plan before any code ships.

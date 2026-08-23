@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Investigated sending `steam://` commands (e.g. `rungameid`) over the local
+  IPC pipe used by `steam-client-create-shortcut` as a launch/stop primitive;
+  found not viable (undocumented, closed-source protocol with real risk of
+  destabilizing the Steam client). `launch_game`/`stop_game` remain permanent
+  `501 unsupported` stubs; see docs/DEVICE_LAUNCH.md for details.
+
 ## [0.2.0] - 2026-08-23
 
 ### Added
