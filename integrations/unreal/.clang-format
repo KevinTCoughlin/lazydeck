@@ -1,0 +1,28 @@
+# clang-format config for integrations/unreal/, matching Epic's own Unreal
+# Engine coding standard (tabs, Allman braces, PascalCase types) so this
+# plugin's C++ reads like any other Unreal module rather than importing a
+# different house style. `just lint-unreal` and the "Unreal C++ format" CI
+# job both run `clang-format --dry-run --Werror` against this file.
+---
+Language: Cpp
+BasedOnStyle: Microsoft
+UseTab: Always
+TabWidth: 4
+IndentWidth: 4
+ColumnLimit: 160
+BreakBeforeBraces: Allman
+AccessModifierOffset: -4
+NamespaceIndentation: None
+PointerAlignment: Left
+ReferenceAlignment: Left
+SpaceAfterCStyleCast: true
+SpacesInAngles: false
+ReflowComments: false
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+FixNamespaceComments: false

@@ -334,18 +334,23 @@ HTTP+SSE API, so engine editors can drive them without shelling out to
 [rendered API docs](https://kevintcoughlin.com/lazydeck/api/) or read
 [`api/openapi.yaml`](api/openapi.yaml) directly for the contract.
 
-Two editor integrations are built on that API, both covering the same
-operations — discover, pair, and inspect devkits, build and deploy the
-current project, and sync logs, without leaving the editor:
+Three editor integrations are built on that API, covering the same core
+operations — discover, pair, and inspect devkits, deploy a build, and sync
+logs, without leaving the editor:
 
 - A Godot 4 editor plugin (Godot 4.3+):
   [`integrations/godot`](integrations/godot).
 - A Unity Editor package (Unity 2023.1 or newer, including Unity 6):
   [`integrations/unity`](integrations/unity).
+- An Unreal Engine editor plugin (Unreal 5.x, C++ project):
+  [`integrations/unreal`](integrations/unreal). Unlike the other two, it
+  does not yet drive Unreal's own cook/package step automatically — see
+  its README for current scope and an important validation caveat (it was
+  authored without an Unreal toolchain to compile against).
 
 Run `lazydeck serve`, then enable the plugin or add the package. Each
 directory's README covers current scope, engine-specific build behavior,
-and a runnable example project.
+and (for Godot/Unity) a runnable example project.
 
 ### MCP server for LLM agents
 
