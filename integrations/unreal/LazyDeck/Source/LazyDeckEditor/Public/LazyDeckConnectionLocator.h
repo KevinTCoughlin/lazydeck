@@ -17,9 +17,9 @@ public:
 	/**
 	 * Prefers $XDG_RUNTIME_DIR (matches the Go side's preference for a
 	 * tmpfs-backed, per-session, already-private location for a file holding
-	 * a bearer token) and falls back to the OS cache directory otherwise
-	 * (matches Go's os.UserCacheDir(), via FPlatformProcess::UserSettingsDir()
-	 * on this plugin's supported desktop platforms).
+	 * a bearer token) and falls back to the OS cache directory otherwise,
+	 * matching Go's os.UserCacheDir(): $XDG_CACHE_HOME (or ~/.cache) on
+	 * Linux, ~/Library/Caches on macOS, %LocalAppData% on Windows.
 	 */
 	static FString DefaultPath();
 
@@ -31,4 +31,8 @@ public:
 	 * an expected, common outcome for the caller to handle, not exceptional.
 	 */
 	static bool Load(const FString& InPath, FLazyDeckConnectionInfo& OutInfo, FString& OutError);
+
+private:
+	/** Approximates Go's os.UserCacheDir() on this plugin's supported desktop platforms. */
+	static FString CacheDirectory();
 };

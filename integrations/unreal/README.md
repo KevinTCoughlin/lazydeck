@@ -80,7 +80,9 @@ category) and restart the editor.
 
 `LazyDeckConnectionLocator` reads the same connection file
 `internal/server/connection.go` writes: `$XDG_RUNTIME_DIR/lazydeck/serve.json`
-when set, otherwise `<OS user settings dir>/lazydeck/serve.json`. That file
+when set, otherwise `<OS cache dir>/lazydeck/serve.json` ($XDG_CACHE_HOME or
+`~/.cache` on Linux, `~/Library/Caches` on macOS, `%LocalAppData%` on
+Windows — matching Go's `os.UserCacheDir()`). That file
 names the loopback port and bearer token for the currently running
 `lazydeck serve` process; the dock's "Connect" button re-reads it on demand.
 

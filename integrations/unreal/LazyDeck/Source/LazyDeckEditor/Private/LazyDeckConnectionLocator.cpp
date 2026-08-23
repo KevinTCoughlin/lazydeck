@@ -14,12 +14,31 @@ FString FLazyDeckConnectionLocator::DefaultPath()
 	{
 		return FPaths::Combine(RuntimeDir, TEXT("lazydeck"), TEXT("serve.json"));
 	}
-	// FPlatformProcess::UserSettingsDir() approximates Go's os.UserCacheDir()
-	// on the platforms lazydeck itself ships for (~/.cache or
-	// ~/Library/Application Support on macOS) closely enough for locating a
-	// file another process already wrote; it does not need to match byte for
-	// byte since this plugin never writes here itself.
-	return FPaths::Combine(FPlatformProcess::UserSettingsDir(), TEXT("lazydeck"), TEXT("serve.json"));
+	return FPaths::Combine(CacheDirectory(), TEXT("lazydeck"), TEXT("serve.json"));
+}
+
+FString FLazyDeckConnectionLocator::CacheDirectory()
+{
+#if PLATFORM_MAC
+	return FPaths::Combine(FPlatformProcess::UserHomeDir(), TEXT("Library"), TEXT("Caches"));
+#elif PLATFORM_WINDOWS
+	// Go's os.UserCacheDir() returns %LocalAppData% on Windows.
+	const FString LocalAppData = FPlatformMisc::GetEnvironmentVariable(TEXT("LOCALAPPDATA"));
+	if (!LocalAppData.IsEmpty())
+	{
+		return LocalAppData;
+	}
+	return FPaths::Combine(FPlatformProcess::UserHomeDir(), TEXT("AppData"), TEXT("Local"));
+#else
+	// Linux (and other XDG-following platforms): $XDG_CACHE_HOME, defaulting
+	// to $HOME/.cache when unset -- matches Go's implementation exactly.
+	const FString XdgCache = FPlatformMisc::GetEnvironmentVariable(TEXT("XDG_CACHE_HOME"));
+	if (!XdgCache.IsEmpty())
+	{
+		return XdgCache;
+	}
+	return FPaths::Combine(FPlatformProcess::UserHomeDir(), TEXT(".cache"));
+#endif
 }
 
 bool FLazyDeckConnectionLocator::Load(const FString& InPath, FLazyDeckConnectionInfo& OutInfo, FString& OutError)

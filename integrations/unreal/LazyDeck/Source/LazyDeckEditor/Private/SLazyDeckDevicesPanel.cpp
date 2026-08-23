@@ -190,7 +190,7 @@ void SLazyDeckDevicesPanel::Connect()
 	FString Error;
 	if (FLazyDeckConnectionLocator::Load(FString(), Info, Error))
 	{
-		OnCapabilitiesResult(FLazyDeckApiResult(), Info);
+		RequestCapabilities(Info);
 		return;
 	}
 
@@ -213,7 +213,7 @@ void SLazyDeckDevicesPanel::OnConnectAttempt(bool bAutoStarted, int32 RemainingA
 	FString Error;
 	if (FLazyDeckConnectionLocator::Load(FString(), Info, Error))
 	{
-		OnCapabilitiesResult(FLazyDeckApiResult(), Info);
+		RequestCapabilities(Info);
 		return;
 	}
 
@@ -230,26 +230,31 @@ void SLazyDeckDevicesPanel::OnConnectAttempt(bool bAutoStarted, int32 RemainingA
 										 0.25f, false);
 }
 
-void SLazyDeckDevicesPanel::OnCapabilitiesResult(FLazyDeckApiResult /*Unused*/, FLazyDeckConnectionInfo Info)
+void SLazyDeckDevicesPanel::RequestCapabilities(FLazyDeckConnectionInfo Info)
 {
 	Connection = Info;
 	const TSharedRef<FLazyDeckClient> NewClient = MakeShared<FLazyDeckClient>(Info);
-	NewClient->GetCapabilities(FLazyDeckApiResultDelegate::CreateLambda(
-		[this, NewClient, Info](FLazyDeckApiResult Result)
-		{
-			if (!Result.bOk)
-			{
-				StatusText = TEXT("Not connected");
-				AppendLog(FString::Printf(TEXT("Found a connection file but the request failed: %s"), *Result.ErrorMessage));
-				bBusy = false;
-				return;
-			}
-			Client = NewClient;
-			bConnected = true;
-			StatusText = FString::Printf(TEXT("Connected: %s (pid %d, port %d)"), *Info.ApiVersion, Info.Pid, Info.Port);
-			AppendLog(FString::Printf(TEXT("Connected to lazydeck serve at %s"), *Info.BaseUrl));
-			RefreshDevices();
-		}));
+	// Bound via CreateSP rather than a lambda capturing `this`: CreateSP
+	// holds a weak reference to this widget and simply skips invoking the
+	// callback if the dock tab was closed (and this widget destroyed)
+	// while the request was in flight, which a raw `this` capture would not.
+	NewClient->GetCapabilities(FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnCapabilitiesResult, NewClient, Info));
+}
+
+void SLazyDeckDevicesPanel::OnCapabilitiesResult(FLazyDeckApiResult Result, TSharedRef<FLazyDeckClient> NewClient, FLazyDeckConnectionInfo Info)
+{
+	if (!Result.bOk)
+	{
+		StatusText = TEXT("Not connected");
+		AppendLog(FString::Printf(TEXT("Found a connection file but the request failed: %s"), *Result.ErrorMessage));
+		bBusy = false;
+		return;
+	}
+	Client = NewClient;
+	bConnected = true;
+	StatusText = FString::Printf(TEXT("Connected: %s (pid %d, port %d)"), *Info.ApiVersion, Info.Pid, Info.Port);
+	AppendLog(FString::Printf(TEXT("Connected to lazydeck serve at %s"), *Info.BaseUrl));
+	RefreshDevices();
 }
 
 void SLazyDeckDevicesPanel::RefreshDevices()
@@ -522,25 +527,35 @@ void SLazyDeckDevicesPanel::CancelCurrentJob()
 		return;
 	}
 	const FString JobId = CurrentJobId;
+	// While an operation is still in flight, PollJob owns bBusy/CurrentJobId
+	// and will observe the cancelled status on its next tick -- captured here
+	// (rather than read live in OnCancelJobResult) because that is the state
+	// that matters: whether a poll loop was watching this job when Cancel was
+	// clicked, not whatever bBusy happens to be once the response arrives.
+	const bool bWasTrackedByPollLoop = bBusy;
 	AppendLog(FString::Printf(TEXT("Cancelling job %s..."), *JobId));
-	Client->CancelJob(JobId, FLazyDeckApiResultDelegate::CreateLambda(
-								 [this, JobId](FLazyDeckApiResult Result)
-								 {
-									 if (!Result.bOk)
-									 {
-										 AppendLog(FString::Printf(TEXT("Failed to cancel job %s: %s"), *JobId, *Result.ErrorMessage));
-										 return;
-									 }
-									 // If a poll loop is still watching this job it will observe the
-									 // cancelled status on its next tick and clear CurrentJobId
-									 // itself; if bBusy is already false, nothing else will, so
-									 // retire it here rather than leaving Cancel lit forever.
-									 if (!bBusy && CurrentJobId == JobId)
-									 {
-										 AppendLog(FString::Printf(TEXT("Job %s cancellation requested; no longer tracking it."), *JobId));
-										 CurrentJobId.Empty();
-									 }
-								 }));
+	// Bound via CreateSP (see RequestCapabilities' comment) rather than a
+	// lambda capturing `this`, so a dock closed while this request is in
+	// flight doesn't leave a dangling `this` for the response to dereference.
+	Client->CancelJob(JobId, FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnCancelJobResult, JobId, bWasTrackedByPollLoop));
+}
+
+void SLazyDeckDevicesPanel::OnCancelJobResult(FLazyDeckApiResult Result, FString JobId, bool bWasTrackedByPollLoop)
+{
+	if (!Result.bOk)
+	{
+		AppendLog(FString::Printf(TEXT("Failed to cancel job %s: %s"), *JobId, *Result.ErrorMessage));
+		return;
+	}
+	// If a poll loop is still watching this job it will observe the
+	// cancelled status on its next tick and clear CurrentJobId itself;
+	// otherwise nothing else will, so retire it here rather than leaving
+	// Cancel lit forever pointing at a job that's already been asked to stop.
+	if (!bWasTrackedByPollLoop && CurrentJobId == JobId)
+	{
+		AppendLog(FString::Printf(TEXT("Job %s cancellation requested; no longer tracking it."), *JobId));
+		CurrentJobId.Empty();
+	}
 }
 
 FReply SLazyDeckDevicesPanel::OnBrowseDeployDirClicked()

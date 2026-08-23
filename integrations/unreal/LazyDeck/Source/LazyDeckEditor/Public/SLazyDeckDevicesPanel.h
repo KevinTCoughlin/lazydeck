@@ -43,7 +43,8 @@ public:
 private:
 	void Connect();
 	void OnConnectAttempt(bool bAutoStarted, int32 RemainingAttempts);
-	void OnCapabilitiesResult(FLazyDeckApiResult Result, FLazyDeckConnectionInfo Info);
+	void RequestCapabilities(FLazyDeckConnectionInfo Info);
+	void OnCapabilitiesResult(FLazyDeckApiResult Result, TSharedRef<FLazyDeckClient> NewClient, FLazyDeckConnectionInfo Info);
 	void RefreshDevices();
 	void OnDevicesResult(FLazyDeckApiResult Result);
 	void Discover();
@@ -56,6 +57,7 @@ private:
 	void PollJob(const FString& Label, const FString& JobId);
 	void OnPollResult(FLazyDeckApiResult Result, FString Label, FString JobId);
 	void CancelCurrentJob();
+	void OnCancelJobResult(FLazyDeckApiResult Result, FString JobId, bool bWasTrackedByPollLoop);
 	void BrowseForDirectory(TSharedPtr<SEditableTextBox> TargetBox);
 
 	FText GetStatusText() const;
