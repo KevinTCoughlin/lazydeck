@@ -225,11 +225,18 @@ func _default_executable_name() -> String:
 ## deployments endpoint's optional argv field (see api/openapi.yaml). No
 ## quoting support is offered; this mirrors the simple space-splitting
 ## expectation set by the field's own example (["./MyGame.sh", "--fullscreen"]).
+##
+## Matches runs of non-whitespace characters (rather than splitting on " ")
+## so tabs and repeated spaces between tokens are handled the same way as
+## the Unreal (FString::ParseIntoArrayWS) and Unity (string.Split with a
+## null separator) clients.
 func _parse_argv(launch_command: String) -> PackedStringArray:
-	var trimmed := launch_command.strip_edges()
-	if trimmed == "":
-		return PackedStringArray()
-	return trimmed.split(" ", false)
+	var tokens := RegEx.new()
+	tokens.compile("\\S+")
+	var argv := PackedStringArray()
+	for m in tokens.search_all(launch_command):
+		argv.append(m.get_string())
+	return argv
 
 
 func _refresh_presets() -> void:
