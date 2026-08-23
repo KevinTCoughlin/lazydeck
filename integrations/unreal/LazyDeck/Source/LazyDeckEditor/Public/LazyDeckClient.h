@@ -53,8 +53,8 @@ public:
 	 * OnComplete) with the queued job's snapshot; poll GetJob to observe
 	 * progress.
 	 */
-	void SubmitDeployment(const FString& DeviceId, const FString& GameId, const FString& Directory, bool bDeleteExtraneous,
-						  const TArray<FString>& Argv, FLazyDeckApiResultDelegate OnComplete) const;
+	void SubmitDeployment(const FString& DeviceId, const FString& GameId, const FString& Directory, bool bDeleteExtraneous, const TArray<FString>& Argv,
+						  FLazyDeckApiResultDelegate OnComplete) const;
 
 	/**
 	 * Submits a log-sync job for DeviceId. GameId is accepted for forward

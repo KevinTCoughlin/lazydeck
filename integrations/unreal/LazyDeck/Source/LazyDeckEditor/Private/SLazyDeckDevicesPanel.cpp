@@ -132,8 +132,9 @@ void SLazyDeckDevicesPanel::Construct(const FArguments& InArgs)
 					   SHorizontalBox::Slot().AutoWidth().Padding(
 						   4, 0, 0, 0)[SNew(SButton).Text(LOCTEXT("Browse", "Browse...")).OnClicked(this, &SLazyDeckDevicesPanel::OnBrowseDeployDirClicked)]]
 
-			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SAssignNew(LaunchArgsBox, SEditableTextBox).HintText(
-					LOCTEXT("LaunchArgsHint", "Launch command (optional), e.g. ./MyGame.sh --fullscreen"))]
+			  +
+			  SVerticalBox::Slot().AutoHeight().Padding(4)[SAssignNew(LaunchArgsBox, SEditableTextBox)
+															   .HintText(LOCTEXT("LaunchArgsHint", "Launch command (optional), e.g. ./MyGame.sh --fullscreen"))]
 
 			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(SButton)
 																 .Text(LOCTEXT("Deploy", "Deploy"))
