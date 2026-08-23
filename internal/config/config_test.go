@@ -273,6 +273,25 @@ func TestAddDevicePreservesRefreshInterval(t *testing.T) {
 	}
 }
 
+func TestAddDevicePreservesWebhooks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devices.toml")
+	cfg := &Config{Webhooks: []string{"https://hooks.slack.com/services/T/B/X"}}
+	if err := AddDevice(path, cfg, Device{Name: "a", Machine: "1.2.3.4"}); err != nil {
+		t.Fatalf("AddDevice: %v", err)
+	}
+	if len(cfg.Webhooks) != 1 {
+		t.Fatalf("in-memory webhooks dropped: %#v", cfg.Webhooks)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Webhooks) != 1 || reloaded.Webhooks[0] != "https://hooks.slack.com/services/T/B/X" {
+		t.Fatalf("expected webhooks preserved on disk, got %#v", reloaded.Webhooks)
+	}
+}
+
 // TestSaveOverwriteReplacesContent verifies the rename-based save fully
 // replaces prior contents (no partial/append leftovers).
 func TestSaveOverwriteReplacesContent(t *testing.T) {

@@ -120,6 +120,10 @@ func TestCancelWhileRunningStopsTheJob(t *testing.T) {
 
 func TestCancelWhileQueuedNeverRuns(t *testing.T) {
 	m := NewManager(1)
+
+	onComplete := make(chan Snapshot, 2)
+	m.SetOnComplete(func(snap Snapshot) { onComplete <- snap })
+
 	blockerStarted := make(chan struct{})
 	blockerRelease := make(chan struct{})
 	blocker, err := m.Submit("deck-1", "deploy", func(ctx context.Context, report func(string)) error {
@@ -148,6 +152,17 @@ func TestCancelWhileQueuedNeverRuns(t *testing.T) {
 	snap := waitTerminal(t, queued, time.Second)
 	if snap.Status != Cancelled {
 		t.Fatalf("status = %s, want cancelled", snap.Status)
+	}
+
+	// onComplete must fire for this early-return-while-queued cancellation
+	// path too, not just the normal run-to-completion path in execute.
+	select {
+	case got := <-onComplete:
+		if got.ID != queued.ID || got.Status != Cancelled {
+			t.Fatalf("onComplete snapshot = %#v, want the queued job cancelled", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("onComplete was not called for the queued-then-cancelled job")
 	}
 
 	close(blockerRelease)
@@ -289,5 +304,32 @@ func TestPruneEvictsOldestTerminalJobsBeyondCap(t *testing.T) {
 	}
 	if _, err := m.Get(ids[len(ids)-1]); err != nil {
 		t.Fatalf("newest job should still be retained: %v", err)
+	}
+}
+
+func TestSetOnCompleteCalledWithFinalSnapshot(t *testing.T) {
+	m := NewManager(1)
+
+	got := make(chan Snapshot, 1)
+	m.SetOnComplete(func(snap Snapshot) { got <- snap })
+
+	job, err := m.Submit("deck-1", "deploy", func(ctx context.Context, report func(string)) error {
+		return errors.New("boom")
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitTerminal(t, job, time.Second)
+
+	select {
+	case snap := <-got:
+		if snap.Status != Failed {
+			t.Fatalf("onComplete snapshot status = %s, want failed", snap.Status)
+		}
+		if snap.DeviceID != "deck-1" || snap.Operation != "deploy" {
+			t.Fatalf("onComplete snapshot = %#v, want deck-1/deploy", snap)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("onComplete was not called within 1s")
 	}
 }
