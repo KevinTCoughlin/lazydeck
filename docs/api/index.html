@@ -7,7 +7,7 @@
 <meta name="description" content="Reference docs for lazydeck serve's versioned, loopback-only HTTP+SSE API, generated from api/openapi.yaml.">
 <link rel="icon" href="data:,">
 <style>
-  body { margin: 0; background: #0d1117; }
+  body { margin: 0; background: #0a0e0a; }
   /* Redoc renders its own theme; this just avoids a flash of unstyled
      white background while the standalone bundle (~1MB) loads. */
   #redoc-container { min-height: 100vh; }
@@ -17,9 +17,9 @@
     margin: 64px auto;
     padding: 0 24px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    color: #e6edf3;
+    color: #d8f0d8;
   }
-  .fallback-note a { color: #79c0ff; }
+  .fallback-note a { color: #33ff66; }
 </style>
 </head>
 <body>
@@ -56,7 +56,13 @@
       "https://raw.githubusercontent.com/KevinTCoughlin/lazydeck/main/api/openapi.yaml",
       {
         theme: {
-          colors: { primary: { main: "#79c0ff" } },
+          colors: {
+            primary: { main: "#33ff66" },
+            text: { primary: "#d8f0d8", secondary: "#6b8f6b" },
+            http: { basic: "#33ff66" },
+          },
+          sidebar: { backgroundColor: "#10150f", textColor: "#d8f0d8" },
+          rightPanel: { backgroundColor: "#0a0e0a" },
           typography: { fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" },
         },
       },
