@@ -10,8 +10,9 @@ public class LazyDeckEditor : ModuleRules
 		// current engine build-settings revision rather than silently
 		// inheriting whatever a future engine version changes the default
 		// to, require exact per-file includes (IWYU) instead of relying on
-		// what a shared PCH happens to pull in transitively, and target the
-		// latest C++ standard the engine's toolchain supports.
+		// what a shared PCH happens to pull in transitively, and follow the
+		// engine's own current default C++ standard rather than an older one
+		// left over from whatever CppStandardVersion used to default to.
 		DefaultBuildSettings = BuildSettingsVersion.Latest;
 		IWYUSupport = IWYUSupport.Full;
 		CppStandard = CppStandardVersion.Default;

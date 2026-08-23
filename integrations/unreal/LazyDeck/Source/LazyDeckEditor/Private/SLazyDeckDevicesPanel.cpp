@@ -226,8 +226,8 @@ void SLazyDeckDevicesPanel::OnConnectAttempt(bool bAutoStarted, int32 RemainingA
 	}
 
 	FTimerHandle Unused;
-	GEditor->GetTimerManager()->SetTimer(Unused, FTimerDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnConnectAttempt, bAutoStarted, RemainingAttempts - 1),
-										 0.25f, false);
+	GEditor->GetTimerManager()->SetTimer(
+		Unused, FTimerDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::OnConnectAttempt, bAutoStarted, RemainingAttempts - 1), 0.25f, false);
 }
 
 void SLazyDeckDevicesPanel::RequestCapabilities(FLazyDeckConnectionInfo Info)
@@ -238,7 +238,7 @@ void SLazyDeckDevicesPanel::RequestCapabilities(FLazyDeckConnectionInfo Info)
 	// holds a weak reference to this widget and simply skips invoking the
 	// callback if the dock tab was closed (and this widget destroyed)
 	// while the request was in flight, which a raw `this` capture would not.
-	NewClient->GetCapabilities(FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnCapabilitiesResult, NewClient, Info));
+	NewClient->GetCapabilities(FLazyDeckApiResultDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::OnCapabilitiesResult, NewClient, Info));
 }
 
 void SLazyDeckDevicesPanel::OnCapabilitiesResult(FLazyDeckApiResult Result, TSharedRef<FLazyDeckClient> NewClient, FLazyDeckConnectionInfo Info)
@@ -264,7 +264,7 @@ void SLazyDeckDevicesPanel::RefreshDevices()
 		bBusy = false;
 		return;
 	}
-	Client->ListDevices(FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnDevicesResult));
+	Client->ListDevices(FLazyDeckApiResultDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::OnDevicesResult));
 }
 
 void SLazyDeckDevicesPanel::OnDevicesResult(FLazyDeckApiResult Result)
@@ -318,7 +318,7 @@ void SLazyDeckDevicesPanel::Discover()
 	}
 	bBusy = true;
 	AppendLog(TEXT("Discovering devkits on the LAN..."));
-	Client->DiscoverDevices(5.0f, FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnDiscoverResult));
+	Client->DiscoverDevices(5.0f, FLazyDeckApiResultDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::OnDiscoverResult));
 }
 
 void SLazyDeckDevicesPanel::OnDiscoverResult(FLazyDeckApiResult Result)
@@ -373,7 +373,7 @@ void SLazyDeckDevicesPanel::PairSelected()
 	bBusy = true;
 	const FString DeviceId = SelectedDevice->Id;
 	AppendLog(FString::Printf(TEXT("Pairing %s..."), *DeviceId));
-	Client->PairDevice(DeviceId, FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnPairResult, DeviceId));
+	Client->PairDevice(DeviceId, FLazyDeckApiResultDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::OnPairResult, DeviceId));
 }
 
 void SLazyDeckDevicesPanel::OnPairResult(FLazyDeckApiResult Result, FString DeviceId)
@@ -411,7 +411,7 @@ void SLazyDeckDevicesPanel::Deploy()
 	const FString DeviceId = SelectedDevice->Id;
 	AppendLog(FString::Printf(TEXT("Deploying %s to %s..."), *Directory, *DeviceId));
 	Client->SubmitDeployment(DeviceId, GameId, Directory, /*bDeleteExtraneous=*/false,
-							 FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::TrackJob, FString(TEXT("Deploy"))));
+							 FLazyDeckApiResultDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::TrackJob, FString(TEXT("Deploy"))));
 }
 
 FReply SLazyDeckDevicesPanel::OnSyncLogsClicked()
@@ -441,7 +441,8 @@ void SLazyDeckDevicesPanel::SyncLogs()
 	bBusy = true;
 	const FString DeviceId = SelectedDevice->Id;
 	AppendLog(FString::Printf(TEXT("Syncing logs from %s to %s..."), *DeviceId, *Directory));
-	Client->SyncLogs(DeviceId, Directory, FString(), FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::TrackJob, FString(TEXT("Log sync"))));
+	Client->SyncLogs(DeviceId, Directory, FString(),
+					 FLazyDeckApiResultDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::TrackJob, FString(TEXT("Log sync"))));
 }
 
 void SLazyDeckDevicesPanel::TrackJob(FLazyDeckApiResult SubmitResult, FString Label)
@@ -473,7 +474,7 @@ void SLazyDeckDevicesPanel::PollJob(const FString& Label, const FString& JobId)
 		bBusy = false;
 		return;
 	}
-	Client->GetJob(JobId, FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnPollResult, Label, JobId));
+	Client->GetJob(JobId, FLazyDeckApiResultDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::OnPollResult, Label, JobId));
 }
 
 void SLazyDeckDevicesPanel::OnPollResult(FLazyDeckApiResult Result, FString Label, FString JobId)
@@ -511,7 +512,7 @@ void SLazyDeckDevicesPanel::OnPollResult(FLazyDeckApiResult Result, FString Labe
 	// Still queued/running: check again shortly. Matches the Godot/Unity
 	// clients' one-second poll cadence.
 	FTimerHandle Unused;
-	GEditor->GetTimerManager()->SetTimer(Unused, FTimerDelegate::CreateSP(this, &SLazyDeckDevicesPanel::PollJob, Label, JobId), 1.0f, false);
+	GEditor->GetTimerManager()->SetTimer(Unused, FTimerDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::PollJob, Label, JobId), 1.0f, false);
 }
 
 FReply SLazyDeckDevicesPanel::OnCancelJobClicked()
@@ -537,7 +538,7 @@ void SLazyDeckDevicesPanel::CancelCurrentJob()
 	// Bound via CreateSP (see RequestCapabilities' comment) rather than a
 	// lambda capturing `this`, so a dock closed while this request is in
 	// flight doesn't leave a dangling `this` for the response to dereference.
-	Client->CancelJob(JobId, FLazyDeckApiResultDelegate::CreateSP(this, &SLazyDeckDevicesPanel::OnCancelJobResult, JobId, bWasTrackedByPollLoop));
+	Client->CancelJob(JobId, FLazyDeckApiResultDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::OnCancelJobResult, JobId, bWasTrackedByPollLoop));
 }
 
 void SLazyDeckDevicesPanel::OnCancelJobResult(FLazyDeckApiResult Result, FString JobId, bool bWasTrackedByPollLoop)

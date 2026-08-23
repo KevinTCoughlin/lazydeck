@@ -146,8 +146,8 @@ jobs:
       # status for what still needs a real engine to verify.
       - name: clang-format --dry-run
         run: |
-          find integrations/unreal -name '*.h' -o -name '*.cpp' | \
-            xargs clang-format --dry-run --Werror
+          mapfile -d '' files < <(find integrations/unreal \( -name '*.h' -o -name '*.cpp' \) -print0)
+          if [ "${#files[@]}" -gt 0 ]; then clang-format --dry-run --Werror "${files[@]}"; fi
 
   container:
     name: Container parity (${{ matrix.target }})
