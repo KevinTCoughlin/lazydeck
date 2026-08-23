@@ -31,15 +31,33 @@ itself. Concretely, on startup it:
 ## Usage
 
 Point an MCP-capable client at the `lazydeck` binary with the `mcp`
-subcommand as its stdio server command, for example in a Claude
-Desktop/VS Code MCP server config:
+subcommand as its stdio server command. For Claude Desktop on Linux, edit
+`~/.config/Claude/claude_desktop_config.json`; on macOS/Windows, use the
+same `mcpServers` shape in Claude Desktop's config file:
 
 ```json
 {
   "mcpServers": {
     "lazydeck": {
-      "command": "lazydeck",
+      "command": "/absolute/path/to/lazydeck",
       "args": ["mcp"]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after changing the file; Electron apps often keep a
+tray process alive, so fully quit and relaunch instead of only closing the
+window. Keep the default read-only configuration while validating discovery
+and status queries. Add `--allow-mutations` only when you deliberately want
+an agent to pair, deploy, sync logs, cancel jobs, or call launch/stop:
+
+```json
+{
+  "mcpServers": {
+    "lazydeck": {
+      "command": "/absolute/path/to/lazydeck",
+      "args": ["mcp", "--allow-mutations"]
     }
   }
 }
@@ -90,6 +108,27 @@ a button in an editor. Start with the read-only default and enable
 `--allow-mutations` deliberately once you're comfortable with what an
 agent in your setup might do with those tools.
 
+## Real-world prompts
+
+These prompts have been useful for validating that a real LLM client chooses
+the right LazyDeck tool and argument shape without needing to expose mutating
+operations:
+
+- "What Steam devkits do I have configured?" should call `list_devices`.
+- "Check the status of both devices" should call `device_status` once per
+  returned `device_id` and preserve per-device errors.
+- "What games are deployed on Galileo?" should call `list_games` with the
+  exact configured device id.
+- "Discover Steam devkits on my LAN" should call `discover_devices` and make
+  clear when a discovered device is not yet in `devices.toml`.
+- "What LazyDeck operations are supported?" should call `get_capabilities`
+  and report that remote launch/stop are currently unsupported.
+
+For mutation-enabled sessions, use similarly explicit prompts and confirm the
+local paths and ids before letting the agent proceed, especially for `deploy`:
+`game_id` must avoid `-`, and `argv` should name the command the Steam shortcut
+will launch.
+
 ## Validation
 
 `lazydeck mcp --fixture` has been run end-to-end on Fedora Linux: a real
@@ -111,6 +150,17 @@ devkit. Pairing (`pair_device`) was exercised earlier against the same
 device (a re-pair against an already-paired machine correctly reports the
 underlying `unreachable`/403 from the pairing script, since pairing isn't
 idempotent).
+
+Claude Desktop on Fedora Linux has now been validated as a real LLM client
+against live hardware, not just a scripted MCP client. With the read-only
+configuration above, Claude correctly listed two configured devkits, fetched
+live SteamOS 3.8.25 status and the deployed `Gridlock` title from the reachable
+Steam Deck, surfaced a real DNS/mDNS failure for the unreachable Steam Machine
+as `unreachable: Name or service not known`, discovered an unconfigured
+`steamdeck11` devkit on the LAN, and summarized `/v1/capabilities` without
+choosing the wrong tool or malformed arguments. That run also confirmed the
+human-facing troubleshooting value of the MCP layer: the LLM distinguished a
+real network/configuration problem from a LazyDeck tool-routing problem.
 
 **Caveat found during this validation: `deploy` rejects `-` in `game_id`.**
 On real hardware, a `-` in `game_id` makes the *remote* Steam client

@@ -7,6 +7,10 @@ lazydeck \- terminal UI and local API for Steam devkits
 .B lazydeck serve
 .RI [ --fixture ]
 .br
+.B lazydeck mcp
+.RI [ --fixture ]
+.RI [ --allow-mutations ]
+.br
 .B lazydeck version
 .br
 .B lazydeck help
@@ -14,7 +18,8 @@ lazydeck \- terminal UI and local API for Steam devkits
 .B lazydeck
 is a terminal UI for pairing, inspecting, deploying to, and collecting logs
 from Steam Deck and Steam Machine devkits. It uses the SteamOS devkit protocol
-over the local network.
+over the local network and can expose the same fleet operations to MCP-capable
+LLM clients such as Claude Desktop.
 .SH COMMANDS
 .TP
 .B lazydeck
@@ -29,6 +34,23 @@ on Linux.
 .B lazydeck serve --fixture
 Start the API using an in-memory backend. This is intended for integration
 tests and does not connect to a Steam device.
+.TP
+.B lazydeck mcp
+Run a Model Context Protocol server over stdio. By default it registers only
+read-only tools for health, capabilities, configured devices, mDNS discovery,
+device status, deployed games, and job status. Claude Desktop and other MCP
+clients can use these tools to answer real-world fleet questions without
+leaving chat.
+.TP
+.B lazydeck mcp --fixture
+When auto-starting
+.B lazydeck serve,
+use the in-memory fixture backend instead of real hardware.
+.TP
+.B lazydeck mcp --allow-mutations
+Also register tools that change device or job state: pair, deploy, sync logs,
+cancel jobs, and launch/stop requests. Enable this only when you deliberately
+want an LLM client to perform mutating devkit operations.
 .TP
 .B lazydeck version
 Print version and build metadata.
@@ -58,6 +80,20 @@ Override the uv executable used to run the Python bridge.
 .TP
 .B LAZYDECK_SSH_STRICT
 Set to 1 to reject changed Steam-devkit SSH host keys.
+.TP
+.B LAZYDECK_AUTOSTART
+Set to 0 to prevent
+.B lazydeck mcp
+from auto-starting
+.B lazydeck serve
+when no healthy connection file exists.
+.TP
+.B LAZYDECK_BIN
+Executable that
+.B lazydeck mcp
+uses when auto-starting
+.B lazydeck serve.
+Defaults to the running binary.
 .SH SEE ALSO
 .BR systemctl (1),
 .BR ssh (1),

@@ -93,12 +93,12 @@
   .feature h3 { margin: 0 0 8px; font-size: 1.05rem; }
   .feature p { margin: 0; color: var(--dim); font-size: 0.92rem; }
 
-  section.install, section.integrations {
+  section.install, section.integrations, section.mcp {
     max-width: 760px;
     margin: 0 auto;
     padding: 0 24px 64px;
   }
-  section.install h2, section.integrations h2, section.keys h2 {
+  section.install h2, section.integrations h2, section.mcp h2, section.keys h2 {
     font-size: 1.4rem;
     border-bottom: 1px solid var(--border);
     padding-bottom: 10px;
@@ -177,7 +177,7 @@
   </div>
   <div class="feature">
     <h3>MCP server for LLM agents</h3>
-    <p><code>lazydeck mcp</code> exposes the same API as MCP tools over stdio, for Claude Desktop, VS Code Copilot, and other MCP-capable agents. Read-only by default; mutating tools are opt-in.</p>
+    <p><code>lazydeck mcp</code> exposes the same API as MCP tools over stdio, for Claude Desktop, VS Code Copilot, and other MCP-capable agents. Real Claude Desktop validation covered live status, games, LAN discovery, capabilities, and unreachable-device troubleshooting. Read-only by default; mutating tools are opt-in.</p>
   </div>
   <div class="feature">
     <h3>Trust-on-first-use SSH</h3>
@@ -220,6 +220,37 @@
     <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/tree/main/integrations/unity">Unity package (in progress)</a>
     <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/blob/main/docs/mcp.md">MCP server (lazydeck mcp)</a>
   </div>
+</section>
+
+<section class="mcp">
+  <h2>MCP for Claude Desktop and other LLM clients</h2>
+  <p style="color:var(--dim)">
+    Point Claude Desktop at <code>lazydeck mcp</code> and ask natural-language
+    fleet questions: list configured devkits, check each device's SteamOS
+    status, show deployed games, discover unconfigured LAN devkits, or explain
+    which operations the local API supports. The read-only flow has been
+    validated against real Steam hardware: Claude Desktop correctly reported a
+    reachable Steam Deck's live SteamOS 3.8.25 status and deployed
+    <code>Gridlock</code> title, discovered an unconfigured
+    <code>steamdeck11</code> devkit, and preserved an unreachable Steam
+    Machine's DNS/mDNS error as a hardware/network issue rather than a tool
+    failure.
+  </p>
+  <pre class="codeblock"><code>{
+  "mcpServers": {
+    "lazydeck": {
+      "command": "/absolute/path/to/lazydeck",
+      "args": ["mcp"]
+    }
+  }
+}</code></pre>
+  <p style="color:var(--dim)">
+    Restart your MCP client after editing its config. Add
+    <code>--allow-mutations</code> only when you deliberately want an agent to
+    pair devices, deploy builds, sync logs, or cancel jobs.
+    See <a href="https://github.com/KevinTCoughlin/lazydeck/blob/main/docs/mcp.md">the MCP guide</a>
+    for validation prompts and the mutation-enabled configuration.
+  </p>
 </section>
 
 <section class="keys">

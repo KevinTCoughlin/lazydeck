@@ -358,8 +358,17 @@ integrations. Read-only tools (list devices, discover, status, games, job
 status) are always available; tools that change device or job state
 (deploy, pair, sync logs, cancel, launch/stop) are opt-in via
 `--allow-mutations`, since an agent calling those is a different trust
-model than a human clicking a button in an editor. See
-[`docs/mcp.md`](docs/mcp.md) for setup and configuration.
+model than a human clicking a button in an editor.
+
+A real Claude Desktop session has been validated against live hardware: the
+agent listed configured devkits, fetched SteamOS status and deployed games,
+reported an unreachable devkit as a real DNS/mDNS problem, discovered an
+unconfigured LAN devkit, and summarized capability flags without malformed
+tool arguments. Start with prompts such as "what Steam devkits do I have
+configured?", "check the status of both devices", "what games are deployed on
+Galileo?", and "discover Steam devkits on my LAN". See
+[`docs/mcp.md`](docs/mcp.md) for setup, validation prompts, and the optional
+mutation-enabled configuration.
 
 ## Troubleshooting
 
