@@ -130,20 +130,28 @@ func get_device_status(device_id: String) -> Dictionary:
 
 ## Submits a deploy job for device_id. directory must be an absolute path
 ## on this workstation (the API rejects a relative one — see
-## api/openapi.yaml's deployments endpoint). Returns immediately with the
-## queued job's snapshot ({"ok": true, "data": {"job": {...}}}); poll
-## get_job() to observe progress.
+## api/openapi.yaml's deployments endpoint). argv, when non-empty, is the
+## command-line the resulting Steam shortcut launches with (see
+## api/openapi.yaml's deployments endpoint); leave it empty to omit it from
+## the request body. Returns immediately with the queued job's snapshot
+## ({"ok": true, "data": {"job": {...}}}); poll get_job() to observe
+## progress.
 func submit_deployment(
-	device_id: String, game_id: String, directory: String, delete_extraneous: bool = false
+	device_id: String,
+	game_id: String,
+	directory: String,
+	delete_extraneous: bool = false,
+	argv: PackedStringArray = PackedStringArray()
 ) -> Dictionary:
+	var body := {
+		"game_id": game_id,
+		"directory": directory,
+		"delete_extraneous": delete_extraneous,
+	}
+	if not argv.is_empty():
+		body["argv"] = argv
 	return await request(
-		HTTPClient.METHOD_POST,
-		"/v1/devices/%s/deployments" % device_id.uri_encode(),
-		{
-			"game_id": game_id,
-			"directory": directory,
-			"delete_extraneous": delete_extraneous,
-		}
+		HTTPClient.METHOD_POST, "/v1/devices/%s/deployments" % device_id.uri_encode(), body
 	)
 
 

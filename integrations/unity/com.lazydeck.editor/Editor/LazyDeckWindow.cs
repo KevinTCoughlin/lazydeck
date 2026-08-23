@@ -83,6 +83,7 @@ namespace LazyDeck.Editor
         private string _gameId = "";
         private string _outputDirectory = "";
         private string _executableName = "";
+        private string _launchArgs = "";
         private string _logsDirectory = "";
         private string _currentJobId = "";
         private bool _showConnectionSettings;
@@ -287,6 +288,7 @@ namespace LazyDeck.Editor
             _gameId = EditorGUILayout.TextField("Game ID", _gameId);
             _outputDirectory = EditorGUILayout.TextField("Output directory", _outputDirectory);
             _executableName = EditorGUILayout.TextField("Executable name", _executableName);
+            _launchArgs = EditorGUILayout.TextField("Launch command (optional)", _launchArgs);
 
             EditorGUILayout.HelpBox(
                 "Builds the scenes enabled in File > Build Settings, then deploys the whole "
@@ -382,10 +384,12 @@ namespace LazyDeck.Editor
                 }
 
                 LogLine($"Build finished. Deploying {outputDirectory} to {device.id}...");
+                string[] argv = ParseArgv(_launchArgs);
                 ApiResult submit = await client.SubmitDeploymentAsync(
                     device.id,
                     gameId,
-                    outputDirectory
+                    outputDirectory,
+                    argv: argv
                 );
                 if (this == null || _client != client)
                 {
@@ -827,6 +831,25 @@ namespace LazyDeck.Editor
         private void LogLine(string text)
         {
             _log.Append(text).Append('\n');
+        }
+
+        /// <summary>
+        /// Splits a whitespace-separated launch command into argv tokens
+        /// for the deployments endpoint's optional argv field (see
+        /// api/openapi.yaml). No quoting support is offered; this mirrors
+        /// the simple space-splitting expectation set by the field's own
+        /// example (["./MyGame.sh", "--fullscreen"]).
+        /// </summary>
+        private static string[] ParseArgv(string launchCommand)
+        {
+            if (string.IsNullOrWhiteSpace(launchCommand))
+            {
+                return Array.Empty<string>();
+            }
+            return launchCommand.Split(
+                (char[])null,
+                StringSplitOptions.RemoveEmptyEntries
+            );
         }
     }
 }
