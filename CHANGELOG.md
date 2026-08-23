@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-23
+
 ### Added
 - `lazydeck version` / `--version` command reporting build metadata (version,
   commit, build date, builder, platform), injected via `-ldflags` at release
@@ -20,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Software Bill of Materials (SBOM) and reproducible third-party license
   notices (`NOTICE`, `THIRD_PARTY_GO.md`) shipped in release archives.
 - Reproducible development/test container (`Containerfile` + `.dockerignore`).
+- `lazydeck mcp` Model Context Protocol server exposing lazydeck operations
+  to MCP-compatible clients.
+- Deploy `argv` wiring through API, CLI, and MCP layers for passing custom
+  arguments to deploy operations.
 - Supply-chain baseline: pinned tool versions (`mise.toml`), Dependabot,
   CodeQL, `SECURITY.md`, issue/PR templates, and this changelog.
 
@@ -54,5 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Initial tagged release: Bubble Tea TUI driving the vendored steamos-devkit
 Python bridge via `uv` for pairing, deploy, status, logs, and discovery.
 
-[Unreleased]: https://github.com/kevintcoughlin/lazydeck/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kevintcoughlin/lazydeck/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kevintcoughlin/lazydeck/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kevintcoughlin/lazydeck/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 [project]
 name = "lazydeck-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Headless CLI wrapper around Valve's steamos-devkit client library, driven by lazydeck."
 requires-python = ">=3.10"
 dependencies = [
