@@ -1,5 +1,5 @@
 // Package notify posts job completion events to chat webhooks (Discord and
-// Slack incoming webhooks, or a generic JSON endpoint) so a deploy/log-sync
+// Slack incoming webhooks, or a generic JSON endpoint) so a deploy/logs-sync
 // success or failure is visible outside the TUI/CLI, e.g. in a team channel.
 package notify
 
@@ -67,7 +67,12 @@ func (w *Webhook) Send(ctx context.Context, ev Event) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := w.HTTPClient.Do(req)
+	client := w.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("sending webhook: %w", redactURLError(err))
 	}
@@ -116,7 +121,7 @@ func isDiscordWebhook(rawURL string) bool {
 		return false
 	}
 	host := strings.ToLower(u.Hostname())
-	return (host == "discord.com" || host == "discordapp.com") && strings.HasPrefix(u.Path, "/api/webhooks")
+	return (host == "discord.com" || host == "discordapp.com") && strings.HasPrefix(u.Path, "/api/webhooks/")
 }
 
 func isSlackWebhook(rawURL string) bool {
