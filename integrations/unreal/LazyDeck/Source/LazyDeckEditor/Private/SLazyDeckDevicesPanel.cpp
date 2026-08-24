@@ -12,6 +12,8 @@
 #include "Serialization/JsonSerializer.h"
 #include "TimerManager.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SComboBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SMultiLineEditableTextBox.h"
 #include "Widgets/Layout/SScrollBox.h"
@@ -84,6 +86,12 @@ TArray<FString> ParseArgv(const FString& LaunchCommand)
 
 void SLazyDeckDevicesPanel::Construct(const FArguments& InArgs)
 {
+	for (const FString& Platform : FLazyDeckCookRunner::SupportedPlatforms())
+	{
+		CookPlatformOptions.Add(MakeShared<FString>(Platform));
+	}
+	SelectedCookPlatform = CookPlatformOptions.Num() > 0 ? CookPlatformOptions[0] : nullptr;
+
 	ChildSlot
 		[SNew(SScrollBox) +
 		 SScrollBox::Slot()
@@ -120,6 +128,28 @@ void SLazyDeckDevicesPanel::Construct(const FArguments& InArgs)
 																 .Text(LOCTEXT("Discover", "Discover on LAN"))
 																 .IsEnabled_Lambda([this] { return !IsBusy() && bConnected; })
 																 .OnClicked(this, &SLazyDeckDevicesPanel::OnDiscoverClicked)]
+
+			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(STextBlock).Text(LOCTEXT("CookLabel", "Cook and package (optional)"))]
+
+			  + SVerticalBox::Slot().AutoHeight().Padding(
+					4)[SNew(SHorizontalBox) +
+					   SHorizontalBox::Slot().AutoWidth()
+						   [SAssignNew(CookPlatformCombo, SComboBox<TSharedPtr<FString>>)
+								.OptionsSource(&CookPlatformOptions)
+								.InitiallySelectedItem(SelectedCookPlatform)
+								.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type) { SelectedCookPlatform = Item; })
+								.OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
+														 { return SNew(STextBlock).Text(FText::FromString(Item.IsValid() ? *Item : FString())); })
+								.Content()[SNew(STextBlock)
+											   .Text_Lambda(
+												   [this] { return FText::FromString(SelectedCookPlatform.IsValid() ? *SelectedCookPlatform : FString()); })]] +
+					   SHorizontalBox::Slot().AutoWidth().Padding(8, 0, 0, 0)
+						   [SAssignNew(CookDevelopmentCheckBox, SCheckBox).Content()[SNew(STextBlock).Text(LOCTEXT("CookDevelopment", "Development config"))]] +
+					   SHorizontalBox::Slot().AutoWidth().Padding(8, 0, 0,
+																  0)[SNew(SButton)
+																		 .Text(LOCTEXT("CookAndPackage", "Cook && Package"))
+																		 .IsEnabled_Lambda([this] { return !IsBusy(); })
+																		 .OnClicked(this, &SLazyDeckDevicesPanel::OnCookAndPackageClicked)]]
 
 			  + SVerticalBox::Slot().AutoHeight().Padding(4)[SNew(STextBlock).Text(LOCTEXT("DeployLabel", "Deploy a build directory"))]
 
@@ -431,6 +461,57 @@ void SLazyDeckDevicesPanel::Deploy()
 	AppendLog(FString::Printf(TEXT("Deploying %s to %s..."), *Directory, *DeviceId));
 	Client->SubmitDeployment(DeviceId, GameId, Directory, /*bDeleteExtraneous=*/false, Argv,
 							 FLazyDeckApiResultDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::TrackJob, FString(TEXT("Deploy"))));
+}
+
+FReply SLazyDeckDevicesPanel::OnCookAndPackageClicked()
+{
+	CookAndPackage();
+	return FReply::Handled();
+}
+
+void SLazyDeckDevicesPanel::CookAndPackage()
+{
+	if (IsBusy())
+	{
+		return;
+	}
+	if (!SelectedCookPlatform.IsValid())
+	{
+		AppendLog(TEXT("No platform selected to cook and package for."));
+		return;
+	}
+	// Reuses the Deploy directory field as the archive destination: Deploy
+	// already requires an absolute path there, and BuildCookRun's
+	// -archivedirectory stages the packaged build a caller then deploys
+	// exactly the way Unity's BuildRunner.Build writes into the same
+	// outputDirectory the caller later uploads.
+	const FString OutputDirectory = DeployDirBox.IsValid() ? DeployDirBox->GetText().ToString().TrimStartAndEnd() : FString();
+	if (OutputDirectory.IsEmpty())
+	{
+		AppendLog(TEXT("Fill in the build directory below (or Browse...) before cooking and packaging into it."));
+		return;
+	}
+
+	const FString Platform = *SelectedCookPlatform;
+	const bool bDevelopment = CookDevelopmentCheckBox.IsValid() && CookDevelopmentCheckBox->IsChecked();
+	bCooking = true;
+	AppendLog(FString::Printf(TEXT("Cooking and packaging for %s into %s..."), *Platform, *OutputDirectory));
+	FLazyDeckCookRunner::CookAndPackage(Platform, OutputDirectory, bDevelopment,
+										FLazyDeckCookCompleteDelegate::CreateSP(SharedThis(this), &SLazyDeckDevicesPanel::OnCookComplete));
+}
+
+void SLazyDeckDevicesPanel::OnCookComplete(FLazyDeckCookOutcome Outcome)
+{
+	bCooking = false;
+	if (Outcome.bOk)
+	{
+		AppendLog(TEXT("Cook and package complete. Point the build directory above at the archived platform "
+					   "subfolder UAT staged (e.g. <output>/Linux) before deploying, if it isn't already."));
+	}
+	else
+	{
+		AppendLog(FString::Printf(TEXT("Cook and package failed: %s"), *Outcome.Error));
+	}
 }
 
 FReply SLazyDeckDevicesPanel::OnSyncLogsClicked()
