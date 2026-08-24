@@ -27,7 +27,9 @@ public class LazyDeckEditor : ModuleRules
 		// HTTP/Json talk to lazydeck serve's /v1 API; Slate/UnrealEd/ToolMenus/
 		// WorkspaceMenuStructure build the dock tab, matching how the Godot
 		// addon uses EditorPlugin.add_control_to_dock and the Unity package
-		// uses EditorWindow.
+		// uses EditorWindow. UATHelper drives BuildCookRun asynchronously —
+		// the Unreal counterpart of Unity's in-process BuildPipeline.BuildPlayer
+		// and the Godot addon's headless `godot --export-*` subprocess.
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"Slate",
@@ -39,6 +41,7 @@ public class LazyDeckEditor : ModuleRules
 			"ToolMenus",
 			"WorkspaceMenuStructure",
 			"DesktopPlatform",
+			"UATHelper",
 		});
 	}
 }

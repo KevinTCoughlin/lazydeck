@@ -359,9 +359,10 @@ deploy a build, and sync logs.
   (`-batchmode -quit -executeMethod LazyDeck.Editor.Cli.LazyDeckCli...`) for
   driving build/deploy/log-sync from CI without opening the Editor UI.
 - An Unreal Engine editor plugin (Unreal 5.x, C++ project):
-  [`integrations/unreal`](integrations/unreal). It doesn't drive Unreal's
-  cook/package step yet, and was written without an Unreal toolchain to
-  compile against — see its README before relying on it.
+  [`integrations/unreal`](integrations/unreal). It drives Unreal's
+  cook/package step via UAT `BuildCookRun` for Linux/Win64, and was written
+  without an Unreal toolchain to compile against — see its README before
+  relying on it.
 
 Run `lazydeck serve`, then enable the plugin or add the package. Each
 directory's README covers current scope, engine-specific build behavior,
