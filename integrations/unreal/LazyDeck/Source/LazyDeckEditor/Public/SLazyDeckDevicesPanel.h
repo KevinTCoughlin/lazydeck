@@ -2,11 +2,14 @@
 
 #include "CoreMinimal.h"
 #include "LazyDeckClient.h"
+#include "LazyDeckCookRunner.h"
 #include "Widgets/SCompoundWidget.h"
 
+class SCheckBox;
 class SEditableTextBox;
 class SMultiLineEditableTextBox;
 class SVerticalBox;
+template <typename OptionType> class SComboBox;
 template <typename T> class SListView;
 
 /** One row in the configured-devices list (api/openapi.yaml's Device schema). */
@@ -24,13 +27,15 @@ struct FLazyDeckDeviceRow
  * progress until it finishes. The Unreal counterpart of the Godot addon's
  * ui/devices_dock.gd and the Unity package's Editor/LazyDeckWindow.cs.
  *
+ * Also drives Unreal's own cook/package pipeline through UAT's BuildCookRun
+ * (FLazyDeckCookRunner) so a build directory doesn't need to already exist
+ * before Deploy can be used, mirroring Unity's in-process
+ * BuildPipeline.BuildPlayer and the Godot addon's headless export
+ * subprocess.
+ *
  * Deliberately out of scope, matching both sibling integrations:
  * launch/stop (the SteamOS devkit protocol has no remote primitive for
- * either — see docs/DEVICE_LAUNCH.md) and driving Unreal's own
- * cook/package pipeline automatically (unlike Unity's in-process
- * BuildPipeline.BuildPlayer or Godot's headless export subprocess, hooking
- * Unreal's UAT-based packaging in is a separate follow-up; this panel
- * deploys whatever staged/cooked output directory the user already has).
+ * either — see docs/DEVICE_LAUNCH.md).
  */
 class SLazyDeckDevicesPanel : public SCompoundWidget
 {
@@ -52,6 +57,8 @@ private:
 	void PairSelected();
 	void OnPairResult(FLazyDeckApiResult Result, FString DeviceId);
 	void Deploy();
+	void CookAndPackage();
+	void OnCookComplete(FLazyDeckCookOutcome Outcome);
 	void SyncLogs();
 	void TrackJob(FLazyDeckApiResult SubmitResult, FString Label);
 	void PollJob(const FString& Label, const FString& JobId);
@@ -65,13 +72,14 @@ private:
 	FReply OnDiscoverClicked();
 	FReply OnPairClicked();
 	FReply OnDeployClicked();
+	FReply OnCookAndPackageClicked();
 	FReply OnSyncLogsClicked();
 	FReply OnCancelJobClicked();
 	FReply OnBrowseDeployDirClicked();
 	FReply OnBrowseLogsDirClicked();
 	bool IsBusy() const
 	{
-		return bBusy;
+		return bBusy || bCooking;
 	}
 	void AppendLog(const FString& Line);
 
@@ -92,4 +100,10 @@ private:
 	TSharedPtr<SEditableTextBox> LogsDirBox;
 	TSharedPtr<SMultiLineEditableTextBox> LogBox;
 	FString LogText;
+
+	TArray<TSharedPtr<FString>> CookPlatformOptions;
+	TSharedPtr<FString> SelectedCookPlatform;
+	TSharedPtr<SComboBox<TSharedPtr<FString>>> CookPlatformCombo;
+	TSharedPtr<SCheckBox> CookDevelopmentCheckBox;
+	bool bCooking = false;
 };
