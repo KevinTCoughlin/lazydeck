@@ -126,7 +126,7 @@ machine = "steamdeck.local"
 Periodic background status refresh is off by default; omit
 `refresh_interval_seconds` to refresh only on startup and with the `s` key.
 
-`webhooks` posts a message to each listed URL whenever a deploy or log-sync
+`webhooks` posts a message to each listed URL whenever a deploy or logs-sync
 job finishes, success or failure — Discord and Slack incoming webhook URLs
 are detected automatically and formatted natively; any other URL gets a
 generic JSON body, e.g. for a custom IRC bridge. Omit `webhooks` to disable

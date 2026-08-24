@@ -32,7 +32,7 @@ type Config struct {
 	RefreshIntervalSeconds int `toml:"refresh_interval_seconds"`
 
 	// Webhooks are incoming-webhook URLs notified when a deploy or
-	// log-sync job finishes (success or failure). Discord and Slack
+	// logs-sync job finishes (success or failure). Discord and Slack
 	// webhook URLs are detected and formatted natively; any other URL
 	// gets a generic JSON body, for a custom bridge (e.g. IRC).
 	Webhooks []string `toml:"webhooks"`
@@ -264,7 +264,7 @@ func writeStarter(path string) error {
 # Off by default; status still refreshes on startup and on the 's' key.
 # refresh_interval_seconds = 30
 
-# Uncomment to post to chat webhooks when a deploy or log-sync job finishes.
+# Uncomment to post to chat webhooks when a deploy or logs-sync job finishes.
 # Discord and Slack incoming webhook URLs are detected automatically; any
 # other URL gets a generic JSON body (e.g. for a custom IRC bridge).
 # webhooks = ["https://discord.com/api/webhooks/...", "https://hooks.slack.com/services/..."]

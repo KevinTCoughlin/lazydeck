@@ -62,6 +62,21 @@ func TestWebhookSendTransportErrorDoesNotLeakURL(t *testing.T) {
 	}
 }
 
+func TestWebhookSendWithNilHTTPClientUsesDefault(t *testing.T) {
+	// A Webhook constructed directly (rather than via NewWebhook) has a
+	// nil HTTPClient; Send must fall back to a default client instead of
+	// panicking on HTTPClient.Do.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	w := &Webhook{URL: srv.URL}
+	if err := w.Send(context.Background(), Event{}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+}
+
 func TestWebhookSendNonSuccessStatusIsError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -88,6 +103,10 @@ func TestPayloadDetection(t *testing.T) {
 		// detection substrings must not be misdetected as the real thing.
 		{"https://example.com/discord.com/api/webhooks/1/token", "generic"},
 		{"https://example.com/hook?x=hooks.slack.com", "generic"},
+		// A path that merely starts with "/api/webhooks" but isn't
+		// followed by a "/" (e.g. a typo'd or unrelated endpoint) must
+		// not be misdetected as a real Discord webhook.
+		{"https://discord.com/api/webhooksX/1/token", "generic"},
 	}
 	for _, tc := range cases {
 		w := &Webhook{URL: tc.url}
