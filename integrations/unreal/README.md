@@ -7,7 +7,7 @@ leaving the Unreal Editor. The Unreal counterpart of the
 [Godot plugin](../godot) and the [Unity package](../unity) — same API,
 similar scope.
 
-## Status: connect, devices, pair, discover, deploy, logs
+## Status: connect, devices, pair, discover, cook/package, deploy, logs
 
 The dock (**Window → LazyDeck**) covers:
 
@@ -17,10 +17,33 @@ The dock (**Window → LazyDeck**) covers:
 - Browsing for devkits announcing themselves on the LAN (mDNS discovery).
 - Pairing this workstation's SSH key with a device that's already in
   `devices.toml`.
-- Deploying a build directory you already have (game ID + absolute path)
-  to the selected device, with job progress polled until it finishes.
+- Cooking and packaging the currently open project for Linux or Win64
+  (Proton) via UAT's `BuildCookRun`, archiving into the same directory
+  Deploy reads from — the Unreal counterpart of Unity's in-process
+  `BuildPipeline.BuildPlayer` and the Godot addon's headless
+  `godot --export-*` subprocess. See "Build/cook behavior" below.
+- Deploying a build directory (game ID + absolute path) to the selected
+  device, with job progress polled until it finishes.
 - Syncing the selected device's logs to a local directory.
 - Cancelling an in-flight deploy or log-sync job.
+
+### Build/cook behavior
+
+**Cook and Package** runs `RunUAT BuildCookRun -cook -allmaps -build -stage
+-pak -archive` for the currently open `.uproject` against the platform
+picked in the dropdown (`Linux`, native Steam Deck/Steam Machine target, or
+`Win64`, for titles that rely on Proton) and either the Development or
+Shipping client config. Unlike Unity's synchronous `BuildPipeline.BuildPlayer`,
+UAT runs out-of-process via `IUATHelperModule` and reports back
+asynchronously — the dock stays responsive, and progress/errors also land in
+the Output Log the way any other Editor-triggered UAT task's would.
+
+UAT stages the archived build under a platform subfolder of the directory
+you give it (e.g. `<output>/Linux`), not the bare directory itself, so after
+a successful cook point **Deploy**'s build-directory field at that subfolder
+before deploying. This differs from Unity/Godot, where the build output
+lands directly in the directory you named — a consequence of how
+`BuildCookRun -archivedirectory` lays out its output, not a LazyDeck choice.
 
 **Deliberate limitations:**
 
@@ -32,21 +55,23 @@ The dock (**Window → LazyDeck**) covers:
   so add the device to the config and restart `lazydeck serve` first, then
   Connect again (re-clicking Connect alone re-reads the connection file,
   not `devices.toml`).
-- **No automated cook/package step.** Unlike the Unity package (which
-  drives `BuildPipeline.BuildPlayer` in-process) or the Godot addon (which
-  shells out to `godot --headless --export-*`), this plugin does not yet
-  invoke Unreal's own packaging pipeline. Package your project through the
-  normal Editor/UAT flow first, then point **Deploy** at the resulting
-  staged build directory. Wiring up `IUATHelperModule` (or an
-  `UnrealAutomationTool` RunUAT invocation) to build-then-deploy in one
-  click is a natural follow-up, mirroring `export_runner.gd` /
-  `BuildRunner.cs`.
+- **Cooking still requires a one-time manual step to get to a
+  `Development`/`Shipping` config that actually runs on the target**: UAT's
+  `BuildCookRun` cooks and stages, but does not run a first-time
+  content/plugin-compatibility pass for you — projects with editor-only
+  plugins or platform-gated content may still need an initial manual
+  `Package Project` run to shake those out before this dock's automated
+  path is reliable, the same caveat that applies to `BuildCookRun` when run
+  by hand.
 
 ## Requirements
 
 - Unreal Engine 5.x with a C++ project (an editor plugin's module must be
   compiled; a Blueprint-only project can't load it without first adding any
-  C++ file to generate build targets).
+  C++ file to generate build targets). Cooking targets whatever engine
+  version the project itself is built against; there is no LazyDeck-side
+  version pin beyond the `IUATHelperModule`/UAT command-line surface this
+  plugin targets (UE 5.3–5.4; see "Validation status").
 - A `lazydeck` executable on `PATH`, unless `LAZYDECK_BIN` names it
   explicitly.
 
@@ -104,12 +129,21 @@ a starting point, not a drop-in verified integration. Before relying on it:
 
 - Compile the `LazyDeckEditor` module against your engine version and fix
   any API drift (Slate/HTTP/Json module APIs do shift between engine
-  releases).
+  releases). `IUATHelperModule::CreateUatTask`'s signature in particular has
+  changed across 5.x releases (the result-callback parameter shape most
+  notably); `LazyDeckCookRunner.cpp` targets the UE 5.3–5.4 signature and
+  will need adjusting for other versions.
 - Exercise Connect/Discover/Pair against a `lazydeck serve --fixture`
   instance first (no real hardware required).
 - Confirm `FPlatformProcess::CreateProc`'s detached-launch behavior on your
   target platform, and that `FLazyDeckConnectionLocator::DefaultPath()`
   resolves to a location `lazydeck serve` actually writes to on that
   platform.
+- **Cook and Package (`LazyDeckCookRunner`) has not been run against a real
+  UE 5.x project or toolchain.** The `BuildCookRun` command line it issues
+  mirrors the Editor's own File > Package Project menu, but has not been
+  verified to produce a deployable Linux or Win64 archive end to end;
+  budget for at least one real cook/package/deploy/launch cycle against a
+  Steam Deck or Steam Machine before trusting it in a release pipeline.
 - Real deploy/log-sync/pairing still requires Steam Deck / Steam Machine
   hardware to validate end to end, same as the Godot and Unity integrations.
