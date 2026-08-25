@@ -13,19 +13,18 @@ PySDL2/imgui GUI.
 
 ## Why
 
-Valve ships `steamos-devkit` (the "SteamOS Devkit Client") as a Python +
-PySDL2/imgui GUI with no scriptable/headless entrypoint, and no notion of
-managing several paired devices from one view. This project:
+I run a Steam Deck and a Steam Machine devkit side by side, and Valve's
+`steamos-devkit` client only wants to talk to one at a time through a
+Python/PySDL2/imgui GUI — no scriptable entrypoint, no fleet view. Clicking
+through the same GUI twice for every deploy got old fast.
 
-1. Vendors Valve's MIT-licensed `devkit_client` Python library (see
-   `python/vendor/`, from the actively-maintained
-   [flibitijibibo/steamos-devkit](https://github.com/flibitijibibo/steamos-devkit)
-   fork), which contains all the real pairing / SSH / rsync / mDNS protocol
-   logic — reimplementing that from scratch would be wasteful and risky.
-2. Adds a small headless CLI (`python/cli.py`) that drives that library and
-   prints JSON, since upstream only exposes it through the GUI.
-3. Wraps that CLI in a Go + Bubble Tea TUI (`cmd/lazydeck`) that shows one
-   panel per configured device and drives `uv run` under the hood.
+lazydeck vendors Valve's MIT-licensed `devkit_client` library (see
+`python/vendor/`, pulled from the actively-maintained
+[flibitijibibo/steamos-devkit](https://github.com/flibitijibibo/steamos-devkit)
+fork) so the real pairing/SSH/rsync/mDNS protocol logic stays exactly what
+Valve's own GUI uses. A thin headless CLI (`python/cli.py`) drives that
+library and prints JSON, and a Go + Bubble Tea TUI (`cmd/lazydeck`) wraps
+the CLI with one panel per configured device.
 
 ## Requirements
 
@@ -33,9 +32,9 @@ managing several paired devices from one view. This project:
 - [`uv`](https://docs.astral.sh/uv/) (manages the Python 3.10+ venv/deps for you)
 - [`just`](https://github.com/casey/just) task runner
 - `ssh`/`rsync` available on your machine (standard on macOS)
-- optional but recommended: [`golangci-lint`](https://golangci-lint.run/) and
-  [`ruff`](https://docs.astral.sh/ruff/) (`brew install golangci-lint ruff`)
-  — `just lint` uses them automatically if present, otherwise falls back to
+- optional: [`golangci-lint`](https://golangci-lint.run/) and
+  [`ruff`](https://docs.astral.sh/ruff/) (`brew install golangci-lint ruff`).
+  `just lint` uses them automatically if present, otherwise falls back to
   `go vet`/`py_compile`.
 
 ## Installing a pre-built release
@@ -126,13 +125,13 @@ machine = "steamdeck.local"
 Periodic background status refresh is off by default; omit
 `refresh_interval_seconds` to refresh only on startup and with the `s` key.
 
-`webhooks` posts a message to each listed URL whenever a deploy or logs-sync
-job finishes, success or failure — Discord and Slack incoming webhook URLs
-are detected automatically and formatted natively; any other URL gets a
-generic JSON body, e.g. for a custom IRC bridge. Omit `webhooks` to disable
-notifications entirely (the default). This only applies to jobs run through
-`lazydeck serve`'s API (what the engine integrations use); interactive TUI
-deploys don't go through the job manager and aren't notified.
+`webhooks` posts a message to each listed URL when a deploy or logs-sync job
+finishes, success or failure. Discord and Slack incoming webhook URLs are
+detected automatically and formatted natively; anything else gets a generic
+JSON body, e.g. for a custom IRC bridge. Omit `webhooks` to disable
+notifications (the default). This only covers jobs run through `lazydeck
+serve`'s API, which is what the engine integrations use — interactive TUI
+deploys go around the job manager and aren't notified.
 
 Don't know the Deck's IP yet? Find it via mDNS/Bonjour (works once the Deck
 is on the same Wi-Fi and Developer Mode pairing is enabled):
@@ -165,8 +164,8 @@ systemctl --user enable --now lazydeck-serve.service
 systemctl --user status lazydeck-serve.service
 ```
 
-It is intentionally **not** enabled at package-install time: the service uses
-your devkit configuration and local SSH trust state. Stop it with
+It's **not** enabled at package-install time, since it needs your devkit
+configuration and local SSH trust state first. Stop it with
 `systemctl --user disable --now lazydeck-serve.service`; the interactive TUI
 does not require it. Archive, Homebrew, and Nix users can copy
 `packaging/systemd/user/lazydeck-serve.service` and replace its `ExecStart`
@@ -175,10 +174,10 @@ path with their installed `lazydeck` binary.
 ### Launching deployed titles
 
 LazyDeck deploys and registers games with Steam, but does not remotely launch
-or stop them. The supported SteamOS devkit protocol has no launch/stop
-primitive, so start and stop a deployed title from the device's Steam UI.
-`/v1/capabilities` intentionally reports both operations as unavailable; see
-[the launch policy](docs/DEVICE_LAUNCH.md) for the rationale.
+or stop them — the SteamOS devkit protocol has no launch/stop primitive, so
+start and stop a deployed title from the device's Steam UI.
+`/v1/capabilities` reports both operations as unavailable; see
+[the launch policy](docs/DEVICE_LAUNCH.md) for background.
 
 ### Custom keybindings/commands (config.yml)
 
@@ -244,10 +243,9 @@ just clean      # remove the built binary and __pycache__ dirs
 
 ### Development/test container
 
-`Containerfile` is a pinned, reproducible Linux development and test
-environment; it is not a runtime service image. LazyDeck is an interactive,
-host-network terminal application, so publishing it as an OCI service would
-misrepresent its operating model.
+`Containerfile` is a pinned Linux dev/test environment, not a runtime service
+image — LazyDeck is an interactive, host-network terminal app, so there's no
+"lazydeck server" to ship as a container.
 
 ```bash
 just container-test
@@ -340,12 +338,12 @@ pair only on a trusted LAN. See [SECURITY.md](SECURITY.md).
 exposes the same devkit operations above through a versioned, loopback-only
 HTTP+SSE API, so engine editors can drive them without shelling out to
 `lazydeck` or reimplementing the SteamOS Devkit protocol. Browse the
-[rendered API docs](https://kevintcoughlin.com/lazydeck/api/) or read
+[rendered API docs](https://lazydeck.dev/api/) or read
 [`api/openapi.yaml`](api/openapi.yaml) directly for the contract.
 
-Three editor integrations are built on that API, covering the same core
-operations — discover, pair, and inspect devkits, deploy a build, and sync
-logs, without leaving the editor:
+Three editor integrations are built on that API, all covering the same core
+workflow without leaving the editor: discover, pair, and inspect devkits,
+deploy a build, and sync logs.
 
 - A Godot 4 editor plugin (Godot 4.3+):
   [`integrations/godot`](integrations/godot).
@@ -354,10 +352,9 @@ logs, without leaving the editor:
   (`-batchmode -quit -executeMethod LazyDeck.Editor.Cli.LazyDeckCli...`) for
   driving build/deploy/log-sync from CI without opening the Editor UI.
 - An Unreal Engine editor plugin (Unreal 5.x, C++ project):
-  [`integrations/unreal`](integrations/unreal). Unlike the other two, it
-  does not yet drive Unreal's own cook/package step automatically — see
-  its README for current scope and an important validation caveat (it was
-  authored without an Unreal toolchain to compile against).
+  [`integrations/unreal`](integrations/unreal). It doesn't drive Unreal's
+  cook/package step yet, and was written without an Unreal toolchain to
+  compile against — see its README before relying on it.
 
 Run `lazydeck serve`, then enable the plugin or add the package. Each
 directory's README covers current scope, engine-specific build behavior,
@@ -376,15 +373,9 @@ status) are always available; tools that change device or job state
 `--allow-mutations`, since an agent calling those is a different trust
 model than a human clicking a button in an editor.
 
-A real Claude Desktop session has been validated against live hardware: the
-agent listed configured devkits, fetched SteamOS status and deployed games,
-reported an unreachable devkit as a real DNS/mDNS problem, discovered an
-unconfigured LAN devkit, and summarized capability flags without malformed
-tool arguments. Start with prompts such as "what Steam devkits do I have
-configured?", "check the status of both devices", "what games are deployed on
-Galileo?", and "discover Steam devkits on my LAN". See
-[`docs/mcp.md`](docs/mcp.md) for setup, validation prompts, and the optional
-mutation-enabled configuration.
+Try prompts like "what Steam devkits do I have configured?", "check the
+status of both devices", or "discover Steam devkits on my LAN". See
+[`docs/mcp.md`](docs/mcp.md) for setup and the mutation-enabled configuration.
 
 ## Troubleshooting
 

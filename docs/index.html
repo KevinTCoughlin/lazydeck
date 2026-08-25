@@ -3,8 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lazydeck — a lazydocker-style TUI for your Steam devkit fleet</title>
-<meta name="description" content="lazydeck is a keyboard-driven terminal UI for managing a fleet of Steam devkits (Steam Deck, Steam Machine) — pairing, deploying builds, checking status, and tailing logs from one panel.">
+<title>lazydeck: a lazydocker-style TUI for your Steam devkit fleet</title>
+<meta name="description" content="lazydeck is a keyboard-driven terminal UI for managing a fleet of Steam devkits (Steam Deck, Steam Machine): pairing, deploying builds, checking status, and tailing logs from one panel.">
+<link rel="canonical" href="https://lazydeck.dev/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://lazydeck.dev/">
+<meta property="og:title" content="lazydeck: a lazydocker-style TUI for your Steam devkit fleet">
+<meta property="og:description" content="A keyboard-driven terminal UI for managing a fleet of Steam devkits: pairing, deploying builds, checking status, and tailing logs from one panel.">
+<meta property="og:image" content="https://lazydeck.dev/assets/lazydeck-tui.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="lazydeck: a lazydocker-style TUI for your Steam devkit fleet">
+<meta name="twitter:description" content="A keyboard-driven terminal UI for managing a fleet of Steam devkits: pairing, deploying builds, checking status, and tailing logs from one panel.">
+<meta name="twitter:image" content="https://lazydeck.dev/assets/lazydeck-tui.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d0d0d'/%3E%3Ctext x='32' y='43' font-family='monospace' font-size='30' font-weight='bold' fill='%23ff6600' text-anchor='middle'%3E%3E_%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -225,9 +235,10 @@
   <span class="eyebrow"><span class="dot"></span> Open source · Go + Bubble Tea</span>
   <h1><span class="mono">$</span> lazydeck</h1>
   <p class="tagline">
-    A lazydocker-style terminal UI for managing a fleet of Steam devkits —
-    Steam Deck, Steam Machine, and other SteamOS devkits — from one
-    keyboard-driven panel instead of Valve's single-target GUI.
+    A lazydocker-style terminal UI for managing a fleet of Steam devkits:
+    Steam Deck, Steam Machine, and anything else running the SteamOS devkit
+    tools. One keyboard-driven panel instead of clicking through Valve's GUI
+    once per device.
   </p>
   <div class="cta-row">
     <a class="btn primary" href="https://github.com/KevinTCoughlin/lazydeck#installing-a-pre-built-release">Install</a>
@@ -242,37 +253,53 @@
     <div class="screenshot-titlebar"><span></span><span></span><span></span></div>
     <img src="assets/lazydeck-tui.png" alt="lazydeck terminal UI showing a device list panel, detail panel, and activity log, managing three Steam devkits" loading="lazy">
   </div>
-  <p class="screenshot-caption">The real lazydeck TUI, live — device list, detail, and activity panels, refreshing status for a small devkit fleet.</p>
+  <p class="screenshot-caption">The real lazydeck TUI: device list, detail, and activity panels, refreshing status across a small devkit fleet.</p>
 </div>
 
 <section class="features">
   <div class="feature">
-    <h3>Fleet, not single-target</h3>
-    <p>One panel per configured devkit. Multi-select devices with <code>space</code> and batch a deploy, log sync, or delete across all of them at once.</p>
+    <h3>One panel per devkit</h3>
+    <p>Your whole fleet in one view. Multi-select devices with <code>space</code> and batch a deploy, log sync, or delete across all of them at once.</p>
+  </div>
+  <div class="feature">
+    <h3>Finds devkits on its own</h3>
+    <p>mDNS/Bonjour LAN discovery (<code>f</code> in the TUI, or an add-device wizard that walks discover → pick → pair) means no hunting for a Deck's IP address.</p>
   </div>
   <div class="feature">
     <h3>Built on Valve's own protocol library</h3>
-    <p>Vendors the MIT-licensed <code>devkit_client</code> library (from the actively-maintained flibitijibibo/steamos-devkit fork) — the same pairing/SSH/rsync/mDNS logic Valve's GUI uses, reused instead of reimplemented.</p>
+    <p>Vendors the MIT-licensed <code>devkit_client</code> library, pulled from the actively-maintained flibitijibibo/steamos-devkit fork. Same pairing/SSH/rsync/mDNS logic Valve's GUI uses, not reimplemented from scratch.</p>
   </div>
   <div class="feature">
     <h3>Headless-first</h3>
-    <p>A local <code>lazydeck serve</code> API (versioned, loopback-only, HTTP+SSE) exposes every operation for scripting and for game-engine editor plugins — not just the TUI.</p>
+    <p>A local <code>lazydeck serve</code> API (versioned, loopback-only, HTTP+SSE) exposes every operation for scripting and for game-engine editor plugins. The TUI is just one client.</p>
+  </div>
+  <div class="feature">
+    <h3>No display required</h3>
+    <p>A pure terminal UI, not a PySDL2/imgui window. Runs over SSH, inside tmux or screen, on a headless Linux build box where Valve's own devkit client can't open a window at all.</p>
   </div>
   <div class="feature">
     <h3>Engine integrations</h3>
-    <p>A Godot 4 editor plugin (dock UI, export, deploy, log sync) ships today; a Unity editor package is in progress. Both talk to <code>lazydeck serve</code> directly.</p>
+    <p>Godot 4 and Unity editor plugins (dock UI, export, deploy, log sync) ship today, plus an Unreal plugin in progress. All talk to <code>lazydeck serve</code> directly.</p>
   </div>
   <div class="feature">
-    <h3>MCP server for LLM agents</h3>
-    <p><code>lazydeck mcp</code> exposes the same API as MCP tools over stdio, for Claude Desktop, VS Code Copilot, and other MCP-capable agents. Real Claude Desktop validation covered live status, games, LAN discovery, capabilities, and unreachable-device troubleshooting. Read-only by default; mutating tools are opt-in.</p>
+    <h3>MCP server, if you want it</h3>
+    <p><code>lazydeck mcp</code> exposes the same API as MCP tools over stdio for Claude Desktop, VS Code Copilot, and other MCP-capable clients. Read-only by default; mutating tools are opt-in.</p>
+  </div>
+  <div class="feature">
+    <h3>Extend it without forking</h3>
+    <p>Bind any key to an arbitrary shell command against the selected device(s) in <code>config.yml</code>, lazygit-style. No plugin API to learn, no fork to maintain.</p>
+  </div>
+  <div class="feature">
+    <h3>Tells your team when a job's done</h3>
+    <p>Point <code>webhooks</code> at a Discord or Slack incoming webhook URL (auto-detected and formatted natively) or any other endpoint, and every deploy or log-sync job posts success or failure when it finishes.</p>
   </div>
   <div class="feature">
     <h3>Trust-on-first-use SSH</h3>
     <p>Records devkit host keys the first time you pair, in a dedicated known_hosts file, and warns (or optionally rejects) on a changed key later.</p>
   </div>
   <div class="feature">
-    <h3>Reproducible by design</h3>
-    <p>Pinned Go/Python/tool versions via <code>mise</code>, a multi-stage Containerfile that builds identically under Docker, Podman, or Apple's <code>container</code> CLI, and CI that exercises all of it.</p>
+    <h3>Supply-chain conscious</h3>
+    <p>Pinned Go/Python/tool versions via <code>mise</code>, a reproducible Containerfile, GitHub Actions pinned to commit SHAs, and SBOMs, checksums, and build provenance generated for every release.</p>
   </div>
 </section>
 
@@ -298,30 +325,26 @@
   <p style="color:var(--dim)">
     <code>lazydeck serve</code> exposes health, capabilities, device
     discovery/pairing/status, async deploy and log-sync jobs (with
-    cancel + SSE progress), all over a versioned local HTTP API — browse
+    cancel + SSE progress), all over a versioned local HTTP API. Browse
     the <a href="api/">rendered API docs</a> or read
     <a href="https://github.com/KevinTCoughlin/lazydeck/blob/main/api/openapi.yaml">the raw OpenAPI spec</a>.
   </p>
   <div class="badge-row">
     <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/tree/main/integrations/godot">Godot 4 plugin</a>
-    <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/tree/main/integrations/unity">Unity package (in progress)</a>
+    <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/tree/main/integrations/unity">Unity package</a>
+    <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/tree/main/integrations/unreal">Unreal plugin (in progress)</a>
     <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/blob/main/docs/mcp.md">MCP server (lazydeck mcp)</a>
   </div>
 </section>
 
 <section class="mcp">
-  <h2>MCP for Claude Desktop and other LLM clients</h2>
+  <h2>Optional: MCP server</h2>
   <p style="color:var(--dim)">
-    Point Claude Desktop at <code>lazydeck mcp</code> and ask natural-language
-    fleet questions: list configured devkits, check each device's SteamOS
-    status, show deployed games, discover unconfigured LAN devkits, or explain
-    which operations the local API supports. The read-only flow has been
-    validated against real Steam hardware: Claude Desktop correctly reported a
-    reachable Steam Deck's live SteamOS 3.8.25 status and deployed
-    <code>Gridlock</code> title, discovered an unconfigured
-    <code>steamdeck11</code> devkit, and preserved an unreachable Steam
-    Machine's DNS/mDNS error as a hardware/network issue rather than a tool
-    failure.
+    <code>lazydeck mcp</code> exposes the same local API to Claude Desktop,
+    VS Code Copilot, and other MCP-capable clients over stdio, for anyone who
+    wants to script their fleet from an LLM client instead of the TUI.
+    Read-only tools are on by default; add <code>--allow-mutations</code> to
+    let an agent pair devices, deploy, sync logs, or cancel jobs.
   </p>
   <pre class="codeblock"><code>{
   "mcpServers": {
@@ -332,11 +355,9 @@
   }
 }</code></pre>
   <p style="color:var(--dim)">
-    Restart your MCP client after editing its config. Add
-    <code>--allow-mutations</code> only when you deliberately want an agent to
-    pair devices, deploy builds, sync logs, or cancel jobs.
-    See <a href="https://github.com/KevinTCoughlin/lazydeck/blob/main/docs/mcp.md">the MCP guide</a>
-    for validation prompts and the mutation-enabled configuration.
+    Restart your MCP client after editing its config. See
+    <a href="https://github.com/KevinTCoughlin/lazydeck/blob/main/docs/mcp.md">the MCP guide</a>
+    for details.
   </p>
 </section>
 
