@@ -292,6 +292,155 @@ func TestAddDevicePreservesWebhooks(t *testing.T) {
 	}
 }
 
+// TestDefaultPathHonorsXDGConfigHome guards the documented ~/.config
+// location: with XDG_CONFIG_HOME set, DefaultPath must use it rather than
+// whatever OS-native directory os.UserConfigDir() would otherwise resolve
+// to (e.g. "~/Library/Application Support" on macOS).
+func TestDefaultPathHonorsXDGConfigHome(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	// migrateLegacyPath calls os.UserConfigDir(), which reads $HOME
+	// directly; isolate it to an empty temp dir so this test can never
+	// read (and delete) the real user's actual legacy config file.
+	t.Setenv("HOME", t.TempDir())
+
+	path, err := DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	want := filepath.Join(xdg, "lazydeck", "devices.toml")
+	if path != want {
+		t.Fatalf("DefaultPath() = %q, want %q", path, want)
+	}
+}
+
+// TestDefaultPathFallsBackToDotConfig guards the documented ~/.config
+// location on platforms/environments with no XDG_CONFIG_HOME set.
+func TestDefaultPathFallsBackToDotConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	path, err := DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	want := filepath.Join(home, ".config", "lazydeck", "devices.toml")
+	if path != want {
+		t.Fatalf("DefaultPath() = %q, want %q", path, want)
+	}
+}
+
+// TestDefaultPathMigratesLegacyOSNativeConfig guards against silently
+// orphaning a real, populated devices.toml that a prior lazydeck version
+// wrote to the OS-native directory os.UserConfigDir() resolves to (e.g.
+// "~/Library/Application Support/lazydeck" on macOS), which never matched
+// the ~/.config path this project has always documented. The legacy file's
+// content must be moved to the documented path, and the legacy file
+// removed, rather than shadowed by a fresh blank starter.
+func TestDefaultPathMigratesLegacyOSNativeConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	legacyDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("os.UserConfigDir: %v", err)
+	}
+	legacyDir = filepath.Join(legacyDir, "lazydeck")
+	newDir := filepath.Join(home, ".config", "lazydeck")
+	if legacyDir == newDir {
+		t.Skip("this OS's UserConfigDir already matches the documented ~/.config path; nothing to migrate")
+	}
+
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(legacyDir, "devices.toml")
+	const content = `[[device]]
+name = "steam-deck"
+machine = "192.168.1.137"
+`
+	if err := os.WriteFile(legacyPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	if want := filepath.Join(newDir, "devices.toml"); path != want {
+		t.Fatalf("DefaultPath() = %q, want %q", path, want)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading migrated file: %v", err)
+	}
+	if string(got) != content {
+		t.Fatalf("migrated content = %q, want %q", got, content)
+	}
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy file removed after migration, stat err = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load migrated path: %v", err)
+	}
+	if len(cfg.Devices) != 1 || cfg.Devices[0].Machine != "192.168.1.137" {
+		t.Fatalf("unexpected devices after migration: %+v", cfg.Devices)
+	}
+}
+
+// TestDefaultPathDoesNotOverwriteExistingDocumentedConfig guards against
+// migration clobbering a file the user already has at the documented
+// ~/.config path (e.g. from following the README before this fix).
+func TestDefaultPathDoesNotOverwriteExistingDocumentedConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	newDir := filepath.Join(home, ".config", "lazydeck")
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newPath := filepath.Join(newDir, "devices.toml")
+	const existing = `[[device]]
+name = "already-here"
+machine = "10.0.0.1"
+`
+	if err := os.WriteFile(newPath, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	legacyDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("os.UserConfigDir: %v", err)
+	}
+	legacyDir = filepath.Join(legacyDir, "lazydeck")
+	if legacyDir != newDir {
+		if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(legacyDir, "devices.toml"), []byte("[[device]]\nname = \"legacy\"\nmachine = \"legacy.local\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	path, err := DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != existing {
+		t.Fatalf("expected existing documented config left untouched, got %q", got)
+	}
+}
+
 // TestSaveOverwriteReplacesContent verifies the rename-based save fully
 // replaces prior contents (no partial/append leftovers).
 func TestSaveOverwriteReplacesContent(t *testing.T) {

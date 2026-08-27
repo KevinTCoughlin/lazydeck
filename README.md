@@ -105,7 +105,14 @@ just build  # go build -o lazydeck ./cmd/lazydeck
 ```
 
 Edit `~/.config/lazydeck/devices.toml` (created for you on first run) to
-list your devkits:
+list your devkits. This path is always `~/.config/lazydeck` — or
+`$XDG_CONFIG_HOME/lazydeck` if that's set — on every OS, including macOS,
+rather than Go's OS-native `os.UserConfigDir()` default (e.g.
+`~/Library/Application Support` on macOS), so it matches what's documented
+here. If an earlier version of lazydeck already wrote a config to that
+OS-native location, it's moved into `~/.config/lazydeck` automatically the
+next time you launch lazydeck (a one-line notice is printed to stderr when
+this happens).
 
 ```toml
 # Optional root-level settings; they must precede the first [[device]] table.
