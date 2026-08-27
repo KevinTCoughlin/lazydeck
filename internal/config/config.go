@@ -38,18 +38,12 @@ type Config struct {
 	Webhooks []string `toml:"webhooks"`
 }
 
-// DefaultPath returns ~/.config/lazydeck/devices.toml, creating the parent
-// directory if needed.
+// DefaultPath returns ~/.config/lazydeck/devices.toml (honoring
+// $XDG_CONFIG_HOME), creating the parent directory if needed and migrating
+// any pre-existing config from the OS-native directory Go's
+// os.UserConfigDir() resolves to (see resolvePath).
 func DefaultPath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	dir = filepath.Join(dir, "lazydeck")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "devices.toml"), nil
+	return resolvePath("devices.toml")
 }
 
 // Load reads the config at path, creating a starter file with inline
@@ -195,17 +189,84 @@ type UserConfig struct {
 	CustomCommands []CustomCommand `yaml:"customCommands"`
 }
 
-// UserConfigPath returns ~/.config/lazydeck/config.yml.
+// UserConfigPath returns ~/.config/lazydeck/config.yml (honoring
+// $XDG_CONFIG_HOME), migrating any pre-existing OS-native config the same
+// way DefaultPath does.
 func UserConfigPath() (string, error) {
-	dir, err := os.UserConfigDir()
+	return resolvePath("config.yml")
+}
+
+// resolvePath returns the canonical, cross-platform path
+// ~/.config/lazydeck/<filename> ($XDG_CONFIG_HOME/lazydeck/<filename> when
+// set), creating the parent directory if needed.
+//
+// lazydeck used to rely on Go's os.UserConfigDir(), which resolves to an
+// OS-native directory (e.g. "~/Library/Application Support" on macOS,
+// "%AppData%" on Windows) that never matched the ~/.config path this
+// project has always documented in README.md and its own starter-file
+// comments. That mismatch meant a user hand-editing the documented path
+// was silently ignored: lazydeck read/wrote a different, hidden file. See
+// migrateLegacyPath, which moves any file already sitting at the old
+// OS-native location into the documented one on first run, so existing
+// devices.toml/config.yml content is preserved rather than shadowed by a
+// blank starter.
+func resolvePath(filename string) (string, error) {
+	dir, err := configDir()
 	if err != nil {
 		return "", err
 	}
-	dir = filepath.Join(dir, "lazydeck")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "config.yml"), nil
+	path := filepath.Join(dir, filename)
+	migrateLegacyPath(path, filename)
+	return path, nil
+}
+
+// configDir returns $XDG_CONFIG_HOME/lazydeck if XDG_CONFIG_HOME is set,
+// otherwise ~/.config/lazydeck, regardless of OS. This is the path
+// lazydeck's docs and starter-file comments have always advertised.
+func configDir() (string, error) {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "lazydeck"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "lazydeck"), nil
+}
+
+// migrateLegacyPath moves a file from the OS-native directory
+// os.UserConfigDir() resolves to (only different from configDir() on
+// platforms like macOS/Windows) into newPath, if newPath doesn't already
+// exist and a legacy file is present. It is a one-time, best-effort
+// operation: any failure to read/write is silently ignored so a permission
+// quirk on the legacy side never blocks startup, and the legacy file is
+// only removed after the copy to newPath succeeds, so a crash mid-migration
+// never loses the user's data.
+func migrateLegacyPath(newPath, filename string) {
+	if _, err := os.Stat(newPath); err == nil {
+		return
+	}
+	legacyDir, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+	legacyDir = filepath.Join(legacyDir, "lazydeck")
+	if legacyDir == filepath.Dir(newPath) {
+		return // OS-native dir already matches the documented one (e.g. Linux)
+	}
+	legacyPath := filepath.Join(legacyDir, filename)
+	data, err := os.ReadFile(legacyPath)
+	if err != nil {
+		return
+	}
+	if err := writeFileAtomic(newPath, data, 0o644); err != nil {
+		return
+	}
+	_ = os.Remove(legacyPath)
+	fmt.Fprintf(os.Stderr, "lazydeck: migrated %s -> %s (see README.md for the current config location)\n", legacyPath, newPath)
 }
 
 // LoadUserConfig reads the user config at path. Starter creation is
