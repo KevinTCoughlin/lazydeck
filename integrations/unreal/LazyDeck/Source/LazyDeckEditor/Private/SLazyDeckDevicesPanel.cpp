@@ -147,7 +147,7 @@ void SLazyDeckDevicesPanel::Construct(const FArguments& InArgs)
 						   [SAssignNew(CookDevelopmentCheckBox, SCheckBox).Content()[SNew(STextBlock).Text(LOCTEXT("CookDevelopment", "Development config"))]] +
 					   SHorizontalBox::Slot().AutoWidth().Padding(8, 0, 0,
 																  0)[SNew(SButton)
-																		 .Text(LOCTEXT("CookAndPackage", "Cook && Package"))
+																		 .Text(LOCTEXT("CookAndPackage", "Cook and Package"))
 																		 .IsEnabled_Lambda([this] { return !IsBusy(); })
 																		 .OnClicked(this, &SLazyDeckDevicesPanel::OnCookAndPackageClicked)]]
 
@@ -489,6 +489,11 @@ void SLazyDeckDevicesPanel::CookAndPackage()
 	if (OutputDirectory.IsEmpty())
 	{
 		AppendLog(TEXT("Fill in the build directory below (or Browse...) before cooking and packaging into it."));
+		return;
+	}
+	if (FPaths::IsRelative(OutputDirectory))
+	{
+		AppendLog(TEXT("Build directory must be an absolute path."));
 		return;
 	}
 

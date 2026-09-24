@@ -13,6 +13,17 @@ namespace
  * enum spells them).
  */
 const TArray<FString> GSupportedPlatforms = {TEXT("Linux"), TEXT("Win64")};
+
+/**
+ * Paths are spliced into BuildCookRun's command line inside double quotes,
+ * so a quote or line break in one would end the argument early and let the
+ * remainder parse as further UAT flags.
+ */
+bool IsSafeQuotedArgument(const FString& Value)
+{
+	int32 Index;
+	return !Value.FindChar(TEXT('"'), Index) && !Value.FindChar(TEXT('\r'), Index) && !Value.FindChar(TEXT('\n'), Index);
+}
 }
 
 const TArray<FString>& FLazyDeckCookRunner::SupportedPlatforms()
@@ -46,11 +57,21 @@ void FLazyDeckCookRunner::CookAndPackage(const FString& Platform, const FString&
 		OnComplete.ExecuteIfBound(FLazyDeckCookOutcome::Failure(TEXT("output directory must be an absolute path")));
 		return;
 	}
+	if (!IsSafeQuotedArgument(OutputDirectory))
+	{
+		OnComplete.ExecuteIfBound(FLazyDeckCookOutcome::Failure(TEXT("output directory must not contain quotes or line breaks")));
+		return;
+	}
 
 	const FString ProjectPath = FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath());
 	if (ProjectPath.IsEmpty())
 	{
 		OnComplete.ExecuteIfBound(FLazyDeckCookOutcome::Failure(TEXT("no project is currently open")));
+		return;
+	}
+	if (!IsSafeQuotedArgument(ProjectPath))
+	{
+		OnComplete.ExecuteIfBound(FLazyDeckCookOutcome::Failure(TEXT("project path must not contain quotes or line breaks")));
 		return;
 	}
 
