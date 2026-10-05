@@ -17,6 +17,9 @@ _lazydeck() {
     serve)
       _arguments '--fixture[use the in-memory test backend]' '--help[show usage]' '-h[show usage]'
       ;;
+    version)
+      _arguments '--check[compare against the latest stable release]'
+      ;;
   esac
 }
 

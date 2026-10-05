@@ -11,6 +11,8 @@ _lazydeck()
         2)
             if [[ "${COMP_WORDS[1]}" == "serve" ]]; then
                 COMPREPLY=($(compgen -W '--fixture --help -h' -- "${cur}"))
+            elif [[ "${COMP_WORDS[1]}" == "version" ]]; then
+                COMPREPLY=($(compgen -W '--check' -- "${cur}"))
             fi
             ;;
     esac

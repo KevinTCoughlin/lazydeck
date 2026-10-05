@@ -64,7 +64,7 @@ check:
 # Validate release configuration and build local snapshot artifacts.
 snapshot:
     goreleaser check
-    goreleaser release --snapshot --clean
+    goreleaser release --snapshot --clean --skip=sign
 
 # Build and run the reproducible checks inside a container. ENGINE selects
 # the container runtime (podman, docker, or Apple's `container` CLI on

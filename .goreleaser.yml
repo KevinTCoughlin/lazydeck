@@ -1,5 +1,6 @@
 # goreleaser config for lazydeck: builds cross-platform CLI/TUI binaries and
-# Debian packages on tag push (see .github/workflows/release.yml).
+# Debian packages for tagged releases and nightly snapshots (see
+# .github/workflows/release.yml and .github/workflows/nightly.yml).
 #
 # Each artifact bundles the Python half so the binary can locate it without a
 # separate clone. Archives use uv from PATH; Debian packages bundle a pinned,
@@ -8,6 +9,18 @@
 version: 2
 
 project_name: lazydeck
+
+git:
+  # The rolling `nightly` prerelease moves a non-semver tag along main; never
+  # let it be mistaken for the current or previous release.
+  ignore_tags:
+    - nightly
+
+# Snapshot builds (CI, `just snapshot`, and the nightly channel) are versioned
+# as the next patch prerelease, so they sort after the last tag and before the
+# next real release.
+snapshot:
+  version_template: "{{ incpatch .Version }}-nightly.{{ .ShortCommit }}"
 
 before:
   hooks:
@@ -132,15 +145,47 @@ nfpms:
 checksum:
   name_template: "checksums.txt"
 
+# Keyless Sigstore signature over checksums.txt (which covers every archive
+# and package). Uses the release workflow's GitHub OIDC identity; skipped for
+# snapshots with --skip=sign.
+signs:
+  - id: cosign
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+
 changelog:
   sort: asc
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^ci:"
+      - "^docs(\\(.*\\))?:"
+      - "^test(\\(.*\\))?:"
+      - "^ci(\\(.*\\))?:"
+      - "^chore(\\(.*\\))?:"
 
 release:
   github:
     owner: kevintcoughlin
     name: lazydeck
+  # vX.Y.Z-rc.N (any semver prerelease) publishes as a GitHub prerelease,
+  # which install.sh's `latest`, Homebrew, and the container `latest` tag skip.
+  prerelease: auto
+  # release-please creates the release (with its changelog) before GoReleaser
+  # runs; keep those notes and only attach artifacts.
+  mode: keep-existing
+  footer: |
+    ## Verify
+
+    ```sh
+    cosign verify-blob checksums.txt \
+      --bundle checksums.txt.sigstore.json \
+      --certificate-identity-regexp '^https://github.com/KevinTCoughlin/lazydeck/\.github/workflows/release\.yml@' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    sha256sum --ignore-missing -c checksums.txt
+    gh attestation verify <artifact> --repo KevinTCoughlin/lazydeck
+    ```

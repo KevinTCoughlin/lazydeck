@@ -36,6 +36,13 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "version", "--version", "-v":
+			if hasFlag(os.Args[2:], "--check") {
+				if err := runVersionCheck(os.Stdout); err != nil {
+					fmt.Fprintln(os.Stderr, "lazydeck:", err)
+					os.Exit(1)
+				}
+				return
+			}
 			fmt.Println(versionString())
 			return
 		case "help", "--help", "-h":
@@ -66,8 +73,20 @@ func main() {
 // Go module build info so `go install .../lazydeck@vX.Y.Z` still reports a
 // real version instead of "dev".
 func versionString() string {
-	v := version
-	c := commit
+	v, c := effectiveBuild()
+	return fmt.Sprintf("lazydeck %s (commit %s, built %s by %s, %s/%s, %s)",
+		v, c, date, builtBy, runtime.GOOS, runtime.GOARCH, runtime.Version())
+}
+
+// effectiveVersion is the version `lazydeck version` reports, without the
+// rest of the build line.
+func effectiveVersion() string {
+	v, _ := effectiveBuild()
+	return v
+}
+
+func effectiveBuild() (v, c string) {
+	v, c = version, commit
 	if v == "dev" {
 		if bv, bc, ok := buildInfoVersion(); ok {
 			if bv != "" {
@@ -78,8 +97,7 @@ func versionString() string {
 			}
 		}
 	}
-	return fmt.Sprintf("lazydeck %s (commit %s, built %s by %s, %s/%s, %s)",
-		v, c, date, builtBy, runtime.GOOS, runtime.GOARCH, runtime.Version())
+	return v, c
 }
 
 func buildInfoVersion() (ver, rev string, ok bool) {
@@ -121,6 +139,9 @@ Usage:
                       If lazydeck mcp needs to auto-start lazydeck serve,
                       run it with --fixture (see above).
   lazydeck version    Print version and build metadata.
+  lazydeck version --check
+                      Also compare against the latest stable release on
+                      GitHub (the only command that checks for updates).
   lazydeck help       Show this help.
 
 Environment:

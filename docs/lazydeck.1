@@ -12,6 +12,7 @@ lazydeck \- terminal UI and local API for Steam devkits
 .RI [ --allow-mutations ]
 .br
 .B lazydeck version
+.RI [ --check ]
 .br
 .B lazydeck help
 .SH DESCRIPTION
@@ -52,8 +53,11 @@ Also register tools that change device or job state: pair, deploy, sync logs,
 cancel jobs, and launch/stop requests. Enable this only when you deliberately
 want an LLM client to perform mutating devkit operations.
 .TP
-.B lazydeck version
-Print version and build metadata.
+.B lazydeck version \fR[\fB--check\fR]
+Print version and build metadata. With
+.BR --check ,
+also query GitHub for the latest stable release and report whether it is
+newer; this is the only command that checks for updates.
 .TP
 .B lazydeck help
 Print command usage.

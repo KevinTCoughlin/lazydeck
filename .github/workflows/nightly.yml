@@ -1,0 +1,101 @@
+name: Nightly
+
+# Rolling `nightly` prerelease built from the tip of main, so changes reach
+# early adopters (`VERSION=nightly ./install.sh`) without waiting for a
+# release. Skipped when main hasn't moved since the last nightly. The release
+# and its tag are replaced on every run; GoReleaser ignores the `nightly` tag
+# (see .goreleaser.yml) so it never affects real release versioning.
+
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  nightly:
+    name: Build and publish nightly
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # replace the nightly release and tag
+      id-token: write # provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Skip if main is unchanged
+        id: changed
+        env:
+          FORCE: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          head="$(git rev-parse HEAD)"
+          last="$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)"
+          if [ "${FORCE}" != "true" ] && [ "${head}" = "${last}" ]; then
+            echo "main is still at the last nightly (${head}); nothing to do."
+            echo "build=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "build=true" >> "${GITHUB_OUTPUT}"
+          fi
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: steps.changed.outputs.build == 'true'
+        with:
+          go-version: "1.26.6"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        if: steps.changed.outputs.build == 'true'
+        with:
+          version: "0.12.5"
+      - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        if: steps.changed.outputs.build == 'true'
+        with:
+          syft-version: "v1.51.0"
+      - name: Test
+        if: steps.changed.outputs.build == 'true'
+        run: |
+          go vet ./...
+          go test -race ./...
+          cd python
+          uv sync --frozen
+          uv run --frozen python -m unittest discover -s . -p 'test_*.py'
+      - name: Snapshot build
+        if: steps.changed.outputs.build == 'true'
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: "2.17.1"
+          args: release --snapshot --clean --skip=sign
+      - name: Attest build provenance
+        if: steps.changed.outputs.build == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/checksums.txt
+      - name: Replace nightly release
+        if: steps.changed.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="$(jq -r .version dist/metadata.json)"
+          sha="$(git rev-parse HEAD)"
+          short="$(git rev-parse --short HEAD)"
+          cat > "${RUNNER_TEMP}/notes.md" <<EOF
+          Rolling build of \`main\` at ${sha} (version \`${version}\`), rebuilt nightly when main changes. Not a stable release: expect rough edges.
+
+          Install: \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | VERSION=nightly bash\`
+
+          Verify provenance: \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\`
+          EOF
+          gh release delete nightly --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes || true
+          gh release create nightly --repo "${GITHUB_REPOSITORY}" \
+            --target "${sha}" --prerelease --latest=false \
+            --title "Nightly (${short})" --notes-file "${RUNNER_TEMP}/notes.md" \
+            dist/*.tar.gz dist/*.deb dist/*.sbom.json dist/checksums.txt

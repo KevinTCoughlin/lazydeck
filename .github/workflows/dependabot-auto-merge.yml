@@ -1,0 +1,82 @@
+name: Dependabot auto-merge
+
+# Merge Dependabot's grouped patch/minor updates once CI has passed on the
+# exact commit, so dependency hygiene doesn't pile up as manual work. Major
+# updates are left for a human.
+#
+#   1. pull_request (Dependabot only): classify the update with
+#      fetch-metadata and label non-major ones `dependabot:auto-merge`.
+#   2. workflow_run (CI completed successfully on a labeled Dependabot PR):
+#      squash-merge, pinned to the head SHA CI tested.
+#
+# Merging after CI (rather than `gh pr merge --auto`) works whether or not
+# main has required status checks configured.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  label:
+    name: Classify update
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        id: meta
+      - name: Label non-major updates
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+        run: |
+          echo "Update type: ${UPDATE_TYPE:-unknown}"
+          case "${UPDATE_TYPE}" in
+            version-update:semver-patch|version-update:semver-minor)
+              gh label create dependabot:auto-merge --repo "${GITHUB_REPOSITORY}" \
+                --color 0e8a16 --description "Merged automatically once CI passes" 2>/dev/null || true
+              gh pr edit "${PR_URL}" --add-label dependabot:auto-merge
+              ;;
+            *)
+              gh pr edit "${PR_URL}" --remove-label dependabot:auto-merge 2>/dev/null || true
+              echo "Leaving ${UPDATE_TYPE:-this update} for a human to review."
+              ;;
+          esac
+
+  merge:
+    name: Merge after green CI
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge labeled Dependabot PR
+        env:
+          # A GitHub App/PAT token makes the merge trigger push workflows on
+          # main (release-please, CI); GITHUB_TOKEN merges don't.
+          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          pr="$(gh pr list --repo "${GITHUB_REPOSITORY}" --state open --head "${HEAD_BRANCH}" \
+            --json number,author,headRefOid,labels \
+            --jq ".[] | select((.author.login == \"app/dependabot\" or .author.login == \"dependabot[bot]\") and .headRefOid == \"${HEAD_SHA}\" and any(.labels[]; .name == \"dependabot:auto-merge\")) | .number")"
+          if [ -z "${pr}" ]; then
+            echo "No open, labeled Dependabot PR at ${HEAD_SHA}; nothing to merge."
+            exit 0
+          fi
+          gh pr merge "${pr}" --repo "${GITHUB_REPOSITORY}" --squash --match-head-commit "${HEAD_SHA}"

@@ -45,7 +45,10 @@ the Nix-provided `uv`, OpenSSH, and rsync executables.
   used by `lazydeck serve --fixture`, so engine-integration tests and
   container CI can exercise the full API without real hardware.
 - `.goreleaser.yml` and `packaging/` — release archives, Debian packages,
-  checksums, SBOM inputs, and bundled uv provisioning.
+  checksums, SBOM inputs, bundled uv provisioning, and the release container
+  image (`packaging/container/Dockerfile`, built from the release `.deb`).
+- `release-please-config.json` / `.release-please-manifest.json` — release
+  automation (see [Releases](#releases)).
 
 ## Testing without hardware
 
@@ -92,6 +95,61 @@ a real devkit, or the Unity plugin (which needs a licensed Editor to run
 in batch mode — see `integrations/unity/README.md`'s validation notes).
 Those remain manual/hardware-gated testing until a licensed CI runner or
 self-hosted LAN runner is available.
+
+## Pull request titles
+
+PRs are squash-merged, and the PR title becomes the commit message on `main`.
+Titles must be [Conventional Commits](https://www.conventionalcommits.org/)
+(enforced by the `PR title` check), because release-please reads them to
+choose the next version and write `CHANGELOG.md`:
+
+| Title | Release effect | Changelog section |
+| --- | --- | --- |
+| `feat(scope): ...` | minor bump | Added |
+| `fix(scope): ...` | patch bump | Fixed |
+| `perf: ...` | patch bump | Changed |
+| `deps: ...` | patch bump | Dependencies |
+| `feat!: ...` (any type with `!`) | breaking; minor bump while 0.x | as its type |
+| `docs`, `test`, `build`, `ci`, `chore`, `refactor`, `style`, `revert` | none on its own | hidden |
+
+Write the title for users: it is the changelog line.
+
+## Releases
+
+Releases are cut by merging a PR, not by pushing tags:
+
+1. Every push to `main` runs `.github/workflows/release.yml`, where
+   release-please keeps a `chore(main): release X.Y.Z` PR open with the next version
+   and its `CHANGELOG.md` entry. Edit that PR's changelog text if you want to
+   polish the wording before release.
+2. Merging the release PR tags `vX.Y.Z`, creates the GitHub release, and the
+   same workflow then runs the test gate, GoReleaser (archives, `.deb`s,
+   SBOMs, a cosign-signed `checksums.txt`, provenance attestations), pushes
+   the `ghcr.io/kevintcoughlin/lazydeck` image, bumps the Homebrew tap, and
+   finally installs the published release with `install.sh` on Linux and
+   macOS and verifies its signature and provenance.
+3. For a release candidate (or any explicit tag), run the **Release** workflow
+   manually from `main` with a tag such as `v0.3.0-rc.1`. Semver prereleases
+   publish as GitHub prereleases: `install.sh`'s default, `lazydeck version
+   --check`, Homebrew, and the container `latest` tag all skip them.
+
+Between releases, `.github/workflows/nightly.yml` publishes a rolling
+`nightly` prerelease from `main` whenever it has changed
+(`VERSION=nightly ./install.sh`). Dependabot patch/minor updates merge
+automatically once CI passes on them; majors wait for review.
+
+Optional repository secrets:
+
+- `RELEASE_BOT_TOKEN`: a GitHub App or fine-grained token (contents and pull
+  requests: write). With it, the release PR runs CI and Dependabot
+  auto-merges trigger the push workflows on `main`; without it both still
+  work, using `GITHUB_TOKEN`.
+- `HOMEBREW_TAP_TOKEN`: contents: write on `KevinTCoughlin/homebrew-lazydeck`.
+  Without it, the tap update is skipped with a notice.
+
+Don't push `v*` tags by hand: the workflow creates them, so there is only one
+path from a tag to published artifacts. If a publishing job fails after the
+tag exists, fix the cause and use **Re-run failed jobs** on that workflow run.
 
 ## Release and license maintenance
 

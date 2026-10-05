@@ -63,8 +63,15 @@ if [[ "${version}" == "latest" ]]; then
   fi
 fi
 
-readonly asset="lazydeck_${version}_${goos}_${goarch}.tar.gz"
-readonly base_url="${LAZYDECK_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/v${version}}"
+# `nightly` is a rolling prerelease rebuilt from main; its tag is not
+# v-prefixed and its asset names carry the snapshot version, which is read
+# back from checksums.txt below.
+release_tag="v${version}"
+if [[ "${version}" == "nightly" ]]; then
+  release_tag="nightly"
+fi
+readonly release_tag
+readonly base_url="${LAZYDECK_RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/${release_tag}}"
 tmp="$(mktemp -d)"
 new_binary=""
 new_runtime=""
@@ -95,9 +102,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
+curl --fail --location --silent --show-error "${base_url}/checksums.txt" -o "${tmp}/checksums.txt"
+if [[ "${release_tag}" == "nightly" ]]; then
+  asset="$(awk -v suffix="_${goos}_${goarch}.tar.gz" '{ name = $2; sub(/^\*/, "", name) } name ~ /^lazydeck_/ && substr(name, length(name) - length(suffix) + 1) == suffix { print name; exit }' "${tmp}/checksums.txt")"
+  if [[ -z "${asset}" ]]; then
+    echo "lazydeck: the nightly release has no ${goos}/${goarch} archive" >&2
+    exit 1
+  fi
+  version="${asset#lazydeck_}"
+  version="${version%"_${goos}_${goarch}.tar.gz"}"
+else
+  asset="lazydeck_${version}_${goos}_${goarch}.tar.gz"
+fi
+readonly asset
+
 echo "lazydeck: downloading v${version} for ${goos}/${goarch}"
 curl --fail --location --silent --show-error "${base_url}/${asset}" -o "${tmp}/${asset}"
-curl --fail --location --silent --show-error "${base_url}/checksums.txt" -o "${tmp}/checksums.txt"
 
 expected="$(awk -v asset="${asset}" '$2 == asset || $2 == "*" asset {print $1; exit}' "${tmp}/checksums.txt")"
 if [[ -z "${expected}" ]]; then

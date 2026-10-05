@@ -1,0 +1,45 @@
+name: PR title
+
+# PRs are squash-merged, so the PR title becomes the commit on main that
+# release-please reads to pick the next version and write CHANGELOG.md.
+# Require it to be a Conventional Commit:
+#
+#   feat: ...        new user-facing behavior     -> minor bump, "Added"
+#   fix: ...         bug fix                      -> patch bump, "Fixed"
+#   perf: ...        performance                  -> patch bump, "Changed"
+#   deps: ...        runtime dependency update    -> patch bump, "Dependencies"
+#   feat!: ...       breaking change (any type)   -> minor bump while 0.x
+#   docs|test|build|ci|chore|refactor|style|revert: ...  no release on its own
+#
+# An optional scope is allowed, e.g. `fix(tui): ...` or `feat(unity)!: ...`.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-title:
+    name: Conventional Commit title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|perf|deps|docs|test|build|ci|chore|refactor|style|revert)(\([a-z0-9._/-]+\))?!?: [^ ].*$'
+          if printf '%s' "${TITLE}" | grep -Eq "${pattern}"; then
+            echo "OK: ${TITLE}"
+            exit 0
+          fi
+          {
+            echo "PR title is not a Conventional Commit: ${TITLE}"
+            echo
+            echo "Expected \`type(optional-scope): summary\`, e.g. \`feat(tui): add device search\` or \`fix: handle missing uv\`."
+            echo "Allowed types: feat, fix, perf, deps, docs, test, build, ci, chore, refactor, style, revert. Add \`!\` before the colon for a breaking change."
+            echo "See CONTRIBUTING.md#releases."
+          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "::error::PR title must follow Conventional Commits (see the job summary)."
+          exit 1
