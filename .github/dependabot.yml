@@ -1,9 +1,16 @@
 version: 2
+# Commit-message prefixes feed release-please (see release-please-config.json):
+# runtime dependency bumps are `deps:` (a patch release, listed under
+# "Dependencies"); dev tooling and GitHub Actions bumps are `chore:`/`ci:`
+# and never cut a release on their own. Patch/minor updates are merged
+# automatically after CI by .github/workflows/dependabot-auto-merge.yml.
 updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: deps
     groups:
       go-dependencies:
         patterns: ["*"]
@@ -12,6 +19,9 @@ updates:
     directory: /python
     schedule:
       interval: weekly
+    commit-message:
+      prefix: deps
+      prefix-development: chore
     groups:
       python-dependencies:
         patterns: ["*"]
@@ -20,6 +30,27 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: ci
     groups:
       github-actions:
+        patterns: ["*"]
+
+  # The published release image's base (ships to users).
+  - package-ecosystem: docker
+    directory: /packaging/container
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps
+
+  # The development/test Containerfile's toolchain images.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    groups:
+      dev-container-images:
         patterns: ["*"]

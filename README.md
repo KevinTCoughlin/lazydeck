@@ -39,9 +39,10 @@ the CLI with one panel per configured device.
 
 ## Installing a pre-built release
 
-Tagged releases (`v*`) are built for macOS and Linux (amd64/arm64) via
+Releases are built for macOS and Linux (amd64/arm64) via
 [goreleaser](https://goreleaser.com/) — see
-[Releases](https://github.com/kevintcoughlin/lazydeck/releases). Each
+[Releases](https://github.com/kevintcoughlin/lazydeck/releases) and
+[CHANGELOG.md](CHANGELOG.md). Each
 archive bundles the `lazydeck` binary alongside `python/` so you don't need
 to clone the repo. You still need `uv` installed locally; LazyDeck finds the
 sibling Python runtime and provisions its locked dependencies into your user
@@ -83,6 +84,16 @@ and `rsync` remain normal package dependencies:
 sudo apt install ./lazydeck_0.2.0_linux_amd64.deb
 ```
 
+A multi-arch container image (built from that Debian package) is published to
+GitHub Container Registry. It suits the stdio MCP server or one-off CLI
+commands; host networking is needed for devkit discovery and SSH:
+
+```bash
+docker run -i --rm --network host \
+  -v "$HOME/.config/lazydeck:/home/lazydeck/.config/lazydeck" \
+  ghcr.io/kevintcoughlin/lazydeck:latest mcp
+```
+
 Nix users can run LazyDeck without a global install, or enter a development
 shell with the project toolchain:
 
@@ -92,7 +103,27 @@ nix develop github:KevinTCoughlin/lazydeck
 ```
 
 Release archives, Debian packages, checksums, SBOMs, and GitHub build
-provenance are generated from the tagged commit.
+provenance are generated from the tagged commit. `checksums.txt` is signed
+with Sigstore keyless signing, so a download can be verified end to end:
+
+```bash
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/KevinTCoughlin/lazydeck/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --ignore-missing -c checksums.txt
+gh attestation verify lazydeck_*_linux_amd64.tar.gz --repo KevinTCoughlin/lazydeck
+```
+
+### Release channels
+
+- **Stable** — `vX.Y.Z` releases. The default for `install.sh`, Homebrew, the
+  container `latest` tag, and `lazydeck version --check` (which reports
+  whether a newer stable release exists; lazydeck never checks on its own).
+- **Release candidates** — `vX.Y.Z-rc.N` GitHub prereleases, installed only
+  when pinned: `VERSION=0.3.0-rc.1 ./install.sh`.
+- **Nightly** — a rolling prerelease rebuilt from `main` whenever it changes:
+  `curl -fsSL https://raw.githubusercontent.com/kevintcoughlin/lazydeck/main/install.sh | VERSION=nightly bash`.
 
 ## Setup
 
