@@ -15,7 +15,7 @@ package = false
 
 [dependency-groups]
 dev = [
-    "ruff==0.17.0",
+    "ruff==0.17.1",
 ]
 
 [tool.ruff]
