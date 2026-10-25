@@ -2,7 +2,7 @@
 # Single source of truth for the correctness checks that must pass before
 # merge: `just check`, the Containerfile's `ci` stage, and (optionally) CI
 # workflow steps all call this script instead of each re-implementing the
-# same gofmt/vet/test/ruff/shellcheck sequence in a slightly different way.
+# same gofmt/vet/test/ruff/ty/shellcheck sequence in a slightly different way.
 #
 # Usage: scripts/ci.sh
 #
@@ -34,6 +34,11 @@ log "uv lock --check && uv sync --frozen"
 
 log "ruff check"
 (cd "${PYTHON_DIR}" && uv run --frozen ruff check .)
+
+# Same as CI's type-check step. Not `uv check`: it uses the locked ty only
+# when ty is in the default dev group, and ty is in the lint group here.
+log "ty check"
+(cd "${PYTHON_DIR}" && uv run --frozen --group lint ty check)
 
 log "python unittest"
 (cd "${PYTHON_DIR}" && uv run --frozen python -m unittest discover -s . -p 'test_*.py' -v)
