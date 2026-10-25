@@ -231,7 +231,10 @@ def cmd_discover(args: argparse.Namespace) -> None:
     zc = zeroconf.Zeroconf()
     try:
         listener = dk.ServiceListener(zc)
-        zeroconf.ServiceBrowser(zc, dk.STEAM_DEVKIT_TYPE, listener)
+        # dk.ServiceListener is duck-typed rather than a zeroconf.ServiceListener
+        # subclass. ServiceBrowser accepts it (it checks hasattr(add_service));
+        # only the vendored annotation is nominal.
+        zeroconf.ServiceBrowser(zc, dk.STEAM_DEVKIT_TYPE, listener)  # ty: ignore[invalid-argument-type]
         time.sleep(args.timeout)
 
         # snapshot_devkits() resolves name/address/port atomically under the
