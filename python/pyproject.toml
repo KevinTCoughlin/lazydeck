@@ -17,6 +17,19 @@ package = false
 dev = [
     "ruff==0.17.1",
 ]
+# Not in "dev": the Go client's `uv run` installs the default groups on users'
+# machines, which have no use for a type checker.
+lint = [
+    "ty>=0.0.91",
+]
+
+[tool.ty.src]
+# vendor/ is third-party code kept as-is, so it is resolved but not checked.
+exclude = ["vendor"]
+
+[tool.ty.environment]
+# cli.py puts vendor/ on sys.path before importing devkit_client.
+extra-paths = ["vendor"]
 
 [tool.ruff]
 target-version = "py310"

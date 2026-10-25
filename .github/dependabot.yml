@@ -23,6 +23,10 @@ updates:
       prefix: deps
       prefix-development: chore
     groups:
+      # First match wins. ty is 0.0.x and most releases change its diagnostics,
+      # so it gets its own PR instead of riding with the runtime dependencies.
+      ty:
+        patterns: ["ty"]
       python-dependencies:
         patterns: ["*"]
 

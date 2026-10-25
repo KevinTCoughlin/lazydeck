@@ -80,6 +80,8 @@ jobs:
         run: uv sync --frozen
       - name: Ruff
         run: uv run --frozen ruff check .
+      - name: Type check
+        run: uv run --frozen --group lint ty check --output-format github
       - name: Unit tests
         run: uv run --frozen python -m unittest discover -s . -p 'test_*.py' -v
 
