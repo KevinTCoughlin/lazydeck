@@ -152,23 +152,30 @@ func isPythonDir(dir string) bool {
 	return true
 }
 
-// run invokes `uv run --project PythonDir python cli.py <args...>` and
-// decodes the JSON envelope it prints on stdout.
+// uvArgs is the uv command line for cli.py. --no-dev keeps uv from installing
+// the default dev group (ruff) into the user's environment on first run;
+// the bridge itself needs only the project dependencies.
+func (c *Client) uvArgs(args ...string) []string {
+	return append([]string{"run", "--no-dev", "--project", c.PythonDir, "python", "cli.py"}, args...)
+}
+
 // Preview renders the exact command line a call with these args would
 // invoke, without running anything. Modeled on lazydocker's practice of
 // always showing the real underlying command it's about to run rather than
 // only a human-friendly paraphrase — useful for trust/debugging when an
 // operation (like delete) touches real hardware over SSH.
 func (c *Client) Preview(args ...string) string {
-	full := append([]string{"run", "--project", c.PythonDir, "python", "cli.py"}, args...)
+	full := c.uvArgs(args...)
 	return "uv " + strings.Join(full, " ")
 }
 
+// run invokes `uv run --no-dev --project PythonDir python cli.py <args...>`
+// and decodes the JSON envelope it prints on stdout.
 func (c *Client) run(ctx context.Context, args ...string) (json.RawMessage, error) {
 	ctx, cancel := c.withFallbackTimeout(ctx)
 	defer cancel()
 
-	full := append([]string{"run", "--project", c.PythonDir, "python", "cli.py"}, args...)
+	full := c.uvArgs(args...)
 	cmd := exec.CommandContext(ctx, c.UVPath, full...)
 	cmd.Dir = c.PythonDir
 	cmd.Env = os.Environ()
