@@ -77,6 +77,17 @@ func TestNewLocatesPythonDirViaDevLayout(t *testing.T) {
 	}
 }
 
+// The bridge needs only the project dependencies; without --no-dev, uv installs
+// the dev group (ruff) into every user's environment on first run.
+func TestPreviewSkipsDevGroup(t *testing.T) {
+	c := &Client{PythonDir: "/opt/lazydeck/python"}
+	got := c.Preview("discover", "--timeout", "3")
+	want := "uv run --no-dev --project /opt/lazydeck/python python cli.py discover --timeout 3"
+	if got != want {
+		t.Errorf("Preview:\n got %q\nwant %q", got, want)
+	}
+}
+
 func TestParseEnvelopeSuccess(t *testing.T) {
 	data, err := parseEnvelope([]byte(`{"ok":true,"data":{"foo":"bar"}}`), nil, nil)
 	if err != nil {

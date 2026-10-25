@@ -320,7 +320,7 @@ that operation across every selected device at once — the lazydocker-style
 `internal/client.Client.run` shells out to:
 
 ```bash
-uv run --project python python cli.py <subcommand> --machine <host> [...]
+uv run --no-dev --project python python cli.py <subcommand> --machine <host> [...]
 ```
 
 `cli.py` imports the vendored `devkit_client` package and calls the same
