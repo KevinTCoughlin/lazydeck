@@ -11,6 +11,20 @@ the last release are collected in the open `chore(main): release …` pull
 request rather than an Unreleased section here. Earlier entries follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.1](https://github.com/KevinTCoughlin/lazydeck/compare/v0.2.0...v0.2.1) (2026-10-25)
+
+
+### Fixed
+
+* skip the dev group when running the Python bridge ([#81](https://github.com/KevinTCoughlin/lazydeck/issues/81)) ([124241c](https://github.com/KevinTCoughlin/lazydeck/commit/124241ccba70c0f75e3f568d80e36697f8e3ea89))
+
+
+### Dependencies
+
+* Bump library/debian in /packaging/container ([#71](https://github.com/KevinTCoughlin/lazydeck/issues/71)) ([623d0d0](https://github.com/KevinTCoughlin/lazydeck/commit/623d0d0ca49a672c89cc11752122f8165a2bdaae))
+* bump library/debian in /packaging/container ([#77](https://github.com/KevinTCoughlin/lazydeck/issues/77)) ([84f7b40](https://github.com/KevinTCoughlin/lazydeck/commit/84f7b40aa6eef1016fbc14986bd7362ead00dcb7))
+* bump paramiko in /python in the python-dependencies group ([#79](https://github.com/KevinTCoughlin/lazydeck/issues/79)) ([85a5787](https://github.com/KevinTCoughlin/lazydeck/commit/85a578799a1e080eda128c0d8167462d0f926362))
+
 ## [0.2.0](https://github.com/kevintcoughlin/lazydeck/compare/v0.1.0...v0.2.0) (2026-10-05)
 
 ### Added
