@@ -14,7 +14,7 @@
 #   docker run -i --rm --network host \
 #     -v "$HOME/.config/lazydeck:/home/lazydeck/.config/lazydeck" \
 #     ghcr.io/kevintcoughlin/lazydeck mcp
-FROM docker.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+FROM docker.io/library/debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
 
 ARG TARGETARCH
 COPY lazydeck_*_linux_${TARGETARCH}.deb /tmp/lazydeck.deb
