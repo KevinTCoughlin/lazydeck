@@ -15,7 +15,7 @@ package = false
 
 [dependency-groups]
 dev = [
-    "ruff==0.17.1",
+    "ruff==0.17.2",
 ]
 # Not in "dev": the Go client's `uv run` installs the default groups on users'
 # machines, which have no use for a type checker.
