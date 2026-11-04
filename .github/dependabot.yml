@@ -14,6 +14,8 @@ updates:
     groups:
       go-dependencies:
         patterns: ["*"]
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: uv
     directory: /python
@@ -29,6 +31,8 @@ updates:
         patterns: ["ty"]
       python-dependencies:
         patterns: ["*"]
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: github-actions
     directory: /
@@ -39,6 +43,8 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+    cooldown:
+      default-days: 7
 
   # The published release image's base (ships to users).
   - package-ecosystem: docker
@@ -47,6 +53,11 @@ updates:
       interval: weekly
     commit-message:
       prefix: deps
+    groups:
+      docker:
+        patterns: ["*"]
+    cooldown:
+      default-days: 7
 
   # The development/test Containerfile's toolchain images.
   - package-ecosystem: docker
@@ -58,3 +69,5 @@ updates:
     groups:
       dev-container-images:
         patterns: ["*"]
+    cooldown:
+      default-days: 7
