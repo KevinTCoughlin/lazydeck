@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# Demo fleet for scripts/demo/demo.tape. TEST-NET-1 addresses (RFC 5737)
+# that never route; scripts/demo/fake-uv answers for them.
+[[device]]
+name = "steam-machine-livingroom"
+machine = "192.0.2.10"
+
+[[device]]
+name = "steamdeck-oled"
+machine = "192.0.2.11"
+login = "deck"
+
+[[device]]
+name = "steamdeck-lcd-travel"
+machine = "192.0.2.12"
+login = "deck"
