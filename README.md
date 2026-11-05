@@ -11,6 +11,17 @@ Machine, Steam Deck, ...) — pairing, deploying builds, checking status, and
 tailing logs from one keyboard-driven panel, instead of Valve's single-target
 PySDL2/imgui GUI.
 
+![lazydeck refreshing a three-devkit fleet, listing games on a Steam Deck and deploying a build](docs/assets/demo.gif)
+
+<sub>Recorded with [vhs](https://github.com/charmbracelet/vhs) against a canned
+backend (`just demo`, see `scripts/demo/`). The UI is the real TUI; the devkits
+are not.</sub>
+
+```sh
+brew install kevintcoughlin/lazydeck/lazydeck   # or see "Installing a pre-built release"
+lazydeck                                        # add devices with `a`, `?` for keys
+```
+
 ## Why
 
 I run a Steam Deck and a Steam Machine devkit side by side, and Valve's

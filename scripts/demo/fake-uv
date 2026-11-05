@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+#
+# Stand-in for `uv` used only to record docs/assets/demo.gif (see
+# scripts/demo/demo.tape). lazydeck runs `$LAZYDECK_UV run ... cli.py <cmd>`;
+# this answers each command with canned JSON in cli.py's envelope format and
+# never touches the network, so the demo shows the real TUI with no hardware.
+set -euo pipefail
+
+cmd="" machine=""
+while (($#)); do
+  case "$1" in
+    cli.py) shift; cmd="${1:-}" ;;
+    --machine) shift; machine="${1:-}" ;;
+  esac
+  shift || true
+done
+
+ok() { printf '{"ok":true,"data":%s}\n' "${1:-null}"; }
+
+case "$cmd" in
+  status)
+    sleep 0.6
+    case "$machine" in
+      192.0.2.10) ok '{"session":"gamescope","os":"SteamOS 3.8.2 (Steam Machine)"}' ;;
+      192.0.2.11) ok '{"session":"gamescope","os":"SteamOS 3.8.2 (Steam Deck OLED)"}' ;;
+      *) printf '{"ok":false,"data":null,"error":"ssh: connect to host %s port 22: Connection timed out"}\n' "$machine" ;;
+    esac ;;
+  list-games)
+    sleep 0.4
+    ok '["Hollow_Grove_dev", "Tidepool_nightly"]' ;;
+  deploy)
+    sleep 2.5
+    ok ;;
+  sync-logs | register | delete)
+    sleep 0.8
+    ok ;;
+  discover)
+    sleep 1.5
+    ok '[{"name":"steamdeck-oled","address":"192.0.2.11","port":32000}]' ;;
+  connection-info)
+    ok "{\"address\":\"$machine\",\"login\":\"deck\",\"key_path\":\"/dev/null\",\"known_hosts_path\":\"/dev/null\",\"strict_host_keys\":true}" ;;
+  *)
+    ok ;;
+esac
