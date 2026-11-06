@@ -10,6 +10,11 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
+      # release-please bumps the manifest on every release, so the flake
+      # reports the latest release version. The commit is appended as semver
+      # build metadata, which `lazydeck version --check` ignores.
+      release = (builtins.fromJSON (builtins.readFile ./.release-please-manifest.json)).".";
+      version = "${release}+${self.shortRev or self.dirtyShortRev or "dirty"}";
     in {
       packages = forAllSystems (system:
         let
@@ -17,7 +22,7 @@
         in {
           default = pkgs.buildGoModule {
             pname = "lazydeck";
-            version = "unstable-${self.shortRev or "dirty"}";
+            inherit version;
             src = self;
             vendorHash = "sha256-jJDgDvc+tqxZAHtUk+cBAFmZnwPZpT5H3OIKzylxKog=";
             env.CGO_ENABLED = 0;
@@ -30,7 +35,7 @@
             ldflags = [
               "-s"
               "-w"
-              "-X main.version=unstable-${self.shortRev or "dirty"}"
+              "-X main.version=${version}"
               "-X main.commit=${self.rev or "dirty"}"
               "-X main.builtBy=nix"
             ];
