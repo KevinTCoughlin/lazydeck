@@ -40,7 +40,8 @@ the CLI with one panel per configured device.
 ## Requirements
 
 - Go 1.25+
-- [`uv`](https://docs.astral.sh/uv/) (manages the Python 3.10+ venv/deps for you)
+- [`uv`](https://docs.astral.sh/uv/) (manages the Python 3.10+ venv/deps for you;
+  first run needs network access to fetch them)
 - [`just`](https://github.com/casey/just) task runner
 - `ssh`/`rsync` available on your machine (standard on macOS)
 - optional: [`golangci-lint`](https://golangci-lint.run/) and
@@ -434,6 +435,11 @@ status of both devices", or "discover Steam devkits on my LAN". See
   it as a sibling of the binary; a dev checkout resolves it automatically).
 - **"uv is required"** — install `uv`, or point `LAZYDECK_UV` at an executable.
   Debian packages include their own copy automatically.
+- **"No interpreter found for Python >=3.10"** — uv can't find a Python and
+  isn't allowed to download one. Distro-packaged uv (Fedora's, for example)
+  sets `python-downloads = "manual"`, so install `python3` from the distro or
+  run `uv python install 3.12` once. Homebrew, Debian packages, and uv from
+  astral.sh download a managed Python automatically.
 - **`uv run` fails with a lock/package error** — from a checkout run
   `uv sync --frozen --project python`; release layouts are provisioned from
   their bundled lockfile automatically.

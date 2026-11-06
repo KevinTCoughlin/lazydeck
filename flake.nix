@@ -19,7 +19,7 @@
             pname = "lazydeck";
             version = "unstable-${self.shortRev or "dirty"}";
             src = self;
-            vendorHash = "sha256-atyAbVzcnQpbbXhFN6iy27HuXW8Zsur4gm4IrSSw8VU=";
+            vendorHash = "sha256-jJDgDvc+tqxZAHtUk+cBAFmZnwPZpT5H3OIKzylxKog=";
             env.CGO_ENABLED = 0;
             # CI runs the complete suite. The Go client cancellation test
             # requires process-group reaping that Nix's build sandbox cannot
@@ -48,8 +48,12 @@
               mkdir -p "$out/share/lazydeck"
               cp -r python "$out/share/lazydeck/python"
               rm -rf "$out/share/lazydeck/python/.venv"
+              # uv's downloaded Pythons are built for FHS systems and fail
+              # to start on NixOS, so point uv at nixpkgs' interpreter.
               wrapProgram "$out/bin/lazydeck" \
                 --set LAZYDECK_PYTHON_DIR "$out/share/lazydeck/python" \
+                --set-default UV_PYTHON "${pkgs.python3}/bin/python3" \
+                --set-default UV_PYTHON_DOWNLOADS never \
                 --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.uv pkgs.openssh pkgs.rsync ]}"
             '';
 

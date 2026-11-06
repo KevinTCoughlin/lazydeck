@@ -149,8 +149,13 @@ for required in lazydeck python/cli.py python/pyproject.toml python/uv.lock; do
 done
 
 "${tmp}/release/lazydeck" version >/dev/null
-UV_PROJECT_ENVIRONMENT="${tmp}/venv" \
-  uv sync --frozen --no-dev --project "${tmp}/release/python" --quiet
+if ! UV_PROJECT_ENVIRONMENT="${tmp}/venv" \
+  uv sync --frozen --no-dev --project "${tmp}/release/python" --quiet; then
+  echo "lazydeck: could not provision the Python bridge (needs network access and Python 3.10+)." >&2
+  echo "lazydeck: if uv found no Python, install python3 from your distro or run 'uv python install 3.12'." >&2
+  echo "lazydeck: distro-packaged uv (e.g. Fedora's) disables automatic Python downloads." >&2
+  exit 1
+fi
 "${tmp}/venv/bin/python" "${tmp}/release/python/cli.py" --help >/dev/null
 
 install -d "${INSTALL_DIR}" "${DATA_DIR}"
