@@ -169,6 +169,19 @@ jobs:
           test -f /usr/share/lazydeck/python/cli.py
           test -x /usr/libexec/lazydeck/uv
           test -f /usr/lib/systemd/user/lazydeck-serve.service
+      - name: Install and smoke-test RPM package on Fedora
+        run: |
+          package="$(find dist -maxdepth 1 -name '*_linux_amd64.rpm' -print -quit)"
+          test -n "${package}"
+          docker run --rm -v "$(realpath "${package}"):/tmp/lazydeck.rpm:ro" \
+            registry.fedoraproject.org/fedora:44 sh -euc '
+              dnf install --assumeyes --quiet /tmp/lazydeck.rpm
+              lazydeck version
+              rpm -q openssh-clients rsync
+              test -f /usr/share/lazydeck/python/cli.py
+              test -x /usr/libexec/lazydeck/uv
+              test -f /usr/lib/systemd/user/lazydeck-serve.service
+            '
       - name: Build and smoke-test the release container image
         run: |
           # Same Dockerfile and .deb-based build the release workflow pushes

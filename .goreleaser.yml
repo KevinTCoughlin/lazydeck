@@ -95,6 +95,7 @@ nfpms:
     license: MIT
     formats:
       - deb
+      - rpm
     section: utils
     priority: optional
     # Binary lands at /usr/bin/lazydeck; the Python runtime at
@@ -105,6 +106,13 @@ nfpms:
       - rsync
       - openssh-client
       - ca-certificates
+    overrides:
+      # Fedora/RHEL name the ssh client package differently.
+      rpm:
+        dependencies:
+          - rsync
+          - openssh-clients
+          - ca-certificates
     contents:
       - src: ./python/cli.py
         dst: /usr/share/lazydeck/python/cli.py

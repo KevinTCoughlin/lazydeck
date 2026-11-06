@@ -324,10 +324,12 @@
   <pre class="codeblock"><code>curl -fsSL https://raw.githubusercontent.com/kevintcoughlin/lazydeck/main/install.sh | bash</code></pre>
   <p style="color:var(--dim)">
     On Debian and Ubuntu, install the amd64/arm64 <code>.deb</code> from the
-    same release. It brings its own pinned <code>uv</code> and depends on
-    <code>openssh-client</code> and <code>rsync</code>.
+    same release; on Fedora and RHEL, the <code>.rpm</code>. Both bring their
+    own pinned <code>uv</code> and depend only on the SSH client and
+    <code>rsync</code>.
   </p>
-  <pre class="codeblock"><code>sudo apt install ./lazydeck_&lt;version&gt;_linux_amd64.deb</code></pre>
+  <pre class="codeblock"><code>sudo apt install ./lazydeck_&lt;version&gt;_linux_amd64.deb
+sudo dnf install ./lazydeck_&lt;version&gt;_linux_amd64.rpm</code></pre>
   <p style="color:var(--dim)">
     Nix users can run it straight from the flake, without a global install:
   </p>

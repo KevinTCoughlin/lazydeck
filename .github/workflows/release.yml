@@ -208,6 +208,7 @@ jobs:
           subject-path: |
             dist/*.tar.gz
             dist/*.deb
+            dist/*.rpm
             dist/*.sbom.json
             dist/checksums.txt
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Debian postinstall for lazydeck. lazydeck drives a bundled Python bridge via
+# Package postinstall (deb and rpm) for lazydeck. lazydeck drives a bundled Python bridge via
 # `uv`. The package includes an architecture-matched uv binary under
 # /usr/libexec/lazydeck, so the maintainer script performs no network access.
 # Dependencies are provisioned into the invoking user's cache on first run.
