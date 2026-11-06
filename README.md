@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/ci.yml/badge.svg)](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/codeql.yml/badge.svg)](https://github.com/KevinTCoughlin/lazydeck/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/KevinTCoughlin/lazydeck/badge)](https://scorecard.dev/viewer/?uri=github.com/KevinTCoughlin/lazydeck)
 [![Go Reference](https://pkg.go.dev/badge/github.com/kevintcoughlin/lazydeck.svg)](https://pkg.go.dev/github.com/kevintcoughlin/lazydeck)
 [![Latest release](https://img.shields.io/github/v/release/KevinTCoughlin/lazydeck)](https://github.com/KevinTCoughlin/lazydeck/releases)
 [![License: MIT](https://img.shields.io/github/license/KevinTCoughlin/lazydeck)](LICENSE)
