@@ -81,6 +81,7 @@ jobs:
           subject-path: |
             dist/*.tar.gz
             dist/*.deb
+            dist/*.rpm
             dist/checksums.txt
       - name: Replace nightly release
         if: steps.changed.outputs.build == 'true'
@@ -101,4 +102,4 @@ jobs:
           gh release create nightly --repo "${GITHUB_REPOSITORY}" \
             --target "${sha}" --prerelease --latest=false \
             --title "Nightly (${short})" --notes-file "${RUNNER_TEMP}/notes.md" \
-            dist/*.tar.gz dist/*.deb dist/*.sbom.json dist/checksums.txt
+            dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.sbom.json dist/checksums.txt

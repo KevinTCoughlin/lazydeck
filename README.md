@@ -89,12 +89,14 @@ VERSION=0.2.0 PREFIX="$HOME/.local" ./install.sh
 VERSION=0.2.0 INSTALL_DIR="$HOME/bin" LAZYDECK_DATA_DIR="$HOME/lib/lazydeck" ./install.sh
 ```
 
-Linux releases also include amd64/arm64 Debian packages. They install the
-binary, Python runtime, and an architecture-matched pinned `uv`; `openssh-client`
-and `rsync` remain normal package dependencies:
+Linux releases also include amd64/arm64 Debian and RPM packages. They install
+the binary, Python runtime, and an architecture-matched pinned `uv`; the SSH
+client (`openssh-client` / `openssh-clients`) and `rsync` remain normal package
+dependencies:
 
 ```bash
-sudo apt install ./lazydeck_0.2.0_linux_amd64.deb
+sudo apt install ./lazydeck_<version>_linux_amd64.deb   # Debian, Ubuntu
+sudo dnf install ./lazydeck_<version>_linux_amd64.rpm   # Fedora, RHEL
 ```
 
 A multi-arch container image (built from that Debian package) is published to
@@ -435,12 +437,12 @@ status of both devices", or "discover Steam devkits on my LAN". See
   to point at the `python/` directory (a pre-built release archive bundles
   it as a sibling of the binary; a dev checkout resolves it automatically).
 - **"uv is required"** — install `uv`, or point `LAZYDECK_UV` at an executable.
-  Debian packages include their own copy automatically.
+  Debian and RPM packages include their own copy automatically.
 - **"No interpreter found for Python >=3.10"** — uv can't find a Python and
   isn't allowed to download one. Distro-packaged uv (Fedora's, for example)
   sets `python-downloads = "manual"`, so install `python3` from the distro or
-  run `uv python install 3.12` once. Homebrew, Debian packages, and uv from
-  astral.sh download a managed Python automatically.
+  run `uv python install 3.12` once. Homebrew, the `.deb`/`.rpm` packages, and
+  uv from astral.sh download a managed Python automatically.
 - **`uv run` fails with a lock/package error** — from a checkout run
   `uv sync --frozen --project python`; release layouts are provisioned from
   their bundled lockfile automatically.
