@@ -309,6 +309,9 @@
     <span class="badge">macOS · amd64/arm64</span>
     <span class="badge">Linux · amd64/arm64</span>
     <span class="badge">Homebrew tap</span>
+    <span class="badge">Debian package</span>
+    <span class="badge">Nix flake</span>
+    <span class="badge">Container image</span>
   </div>
   <pre class="codeblock"><code>brew install kevintcoughlin/lazydeck/lazydeck</code></pre>
   <p style="color:var(--dim)">
@@ -318,6 +321,33 @@
     vendored Python runtime; you only need
     <a href="https://docs.astral.sh/uv/">uv</a> installed locally.
   </p>
+  <pre class="codeblock"><code>curl -fsSL https://raw.githubusercontent.com/kevintcoughlin/lazydeck/main/install.sh | bash</code></pre>
+  <p style="color:var(--dim)">
+    On Debian and Ubuntu, install the amd64/arm64 <code>.deb</code> from the
+    same release. It brings its own pinned <code>uv</code> and depends on
+    <code>openssh-client</code> and <code>rsync</code>.
+  </p>
+  <pre class="codeblock"><code>sudo apt install ./lazydeck_&lt;version&gt;_linux_amd64.deb</code></pre>
+  <p style="color:var(--dim)">
+    Nix users can run it straight from the flake, without a global install:
+  </p>
+  <pre class="codeblock"><code>nix run github:KevinTCoughlin/lazydeck -- version</code></pre>
+  <p style="color:var(--dim)">
+    A multi-arch image on GitHub Container Registry suits the stdio MCP server
+    or one-off CLI commands. Host networking is needed for devkit discovery and SSH.
+  </p>
+  <pre class="codeblock"><code>docker run -i --rm --network host \
+  -v "$HOME/.config/lazydeck:/home/lazydeck/.config/lazydeck" \
+  ghcr.io/kevintcoughlin/lazydeck:latest mcp</code></pre>
+  <p style="color:var(--dim)">
+    <code>checksums.txt</code> is signed with Sigstore keyless signing, and every
+    release ships SBOMs and GitHub build provenance. Verify a download end to end:
+  </p>
+  <pre class="codeblock"><code>cosign verify-blob checksums.txt \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/KevinTCoughlin/lazydeck/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --ignore-missing -c checksums.txt</code></pre>
 </section>
 
 <section class="integrations">
