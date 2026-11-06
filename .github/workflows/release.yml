@@ -72,6 +72,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Credentials stay: the dispatch path pushes the release tag.
           fetch-depth: 0
       - name: Resolve tag
         id: plan
@@ -130,6 +131,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.plan.outputs.tag }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -158,6 +160,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.plan.outputs.tag }}
           # Full history + tags so GoReleaser can compute the changelog and
           # build the exact tagged commit.
@@ -165,6 +168,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.6"
+          # A release builds from nothing cached (zizmor cache-poisoning).
+          cache: false
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
@@ -219,6 +224,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.plan.outputs.tag }}
       - name: Fetch release Debian packages
         env:
@@ -296,11 +302,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.token.outputs.present == 'true'
         with:
+          persist-credentials: false
           ref: ${{ needs.plan.outputs.tag }}
           path: lazydeck
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.token.outputs.present == 'true'
         with:
+          # Credentials stay: the formula commit is pushed to the tap.
           repository: KevinTCoughlin/homebrew-lazydeck
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
@@ -335,6 +343,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.plan.outputs.tag }}
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:

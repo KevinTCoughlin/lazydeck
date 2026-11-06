@@ -2,11 +2,15 @@
 
 ## Reporting a vulnerability
 
-Use GitHub's private vulnerability reporting for this repository. Do not open a
+Use GitHub's
+[private vulnerability reporting](https://github.com/KevinTCoughlin/lazydeck/security/advisories/new)
+for this repository. Do not open a
 public issue containing exploit details, private hostnames, addresses, SSH keys,
 or device logs. Include the affected version, host platform, impact, and a
 minimal reproduction. Security reports are handled on a best-effort basis; no
-formal response-time SLA is offered.
+formal response-time SLA is offered. Fixes are disclosed through a GitHub
+Security Advisory once a patched release is out, crediting the reporter unless
+they ask otherwise.
 
 ## Supported versions
 
