@@ -49,6 +49,38 @@ jobs:
       - name: Race detector
         run: go test -race ./...
 
+  # The flake's vendorHash goes stale whenever go.sum changes (for example a
+  # Dependabot gomod bump), which breaks `nix build`/`nix run`. Build the flake
+  # only when go.mod, go.sum, the flake or this workflow changed. It lives in the CI
+  # workflow so Dependabot auto-merge waits for it.
+  nix:
+    name: Nix flake
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Detect go.mod, go.sum or flake changes
+        id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "${BASE}" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "relevant=true" >> "${GITHUB_OUTPUT}"
+          elif git diff --name-only "${BASE}" HEAD | grep -qE '^(go\.mod|go\.sum|flake\.nix|flake\.lock|\.github/workflows/ci\.yml)$'; then
+            echo "relevant=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "relevant=false" >> "${GITHUB_OUTPUT}"
+          fi
+      - if: steps.changes.outputs.relevant == 'true'
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - name: nix build
+        if: steps.changes.outputs.relevant == 'true'
+        run: |
+          nix build --print-build-logs .#
+          ./result/bin/lazydeck version
+
   golangci:
     name: golangci-lint
     runs-on: ubuntu-latest
