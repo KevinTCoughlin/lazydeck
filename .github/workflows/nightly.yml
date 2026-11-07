@@ -75,6 +75,7 @@ jobs:
           version: "2.17.1"
           args: release --snapshot --clean --skip=sign
       - name: Attest build provenance
+        id: attest
         if: steps.changed.outputs.build == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -87,7 +88,10 @@ jobs:
         if: steps.changed.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
         run: |
+          # Ship the provenance bundle too, for offline verification.
+          cp "${BUNDLE}" dist/provenance.sigstore.json
           version="$(jq -r .version dist/metadata.json)"
           sha="$(git rev-parse HEAD)"
           short="$(git rev-parse --short HEAD)"
@@ -102,4 +106,5 @@ jobs:
           gh release create nightly --repo "${GITHUB_REPOSITORY}" \
             --target "${sha}" --prerelease --latest=false \
             --title "Nightly (${short})" --notes-file "${RUNNER_TEMP}/notes.md" \
-            dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.sbom.json dist/checksums.txt
+            dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.sbom.json dist/checksums.txt \
+            dist/provenance.sigstore.json
