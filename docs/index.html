@@ -336,19 +336,32 @@ sudo dnf install ./lazydeck_&lt;version&gt;_linux_amd64.rpm</code></pre>
   <pre class="codeblock"><code>nix run github:KevinTCoughlin/lazydeck -- version</code></pre>
   <p style="color:var(--dim)">
     A multi-arch image on GitHub Container Registry suits the stdio MCP server
-    or one-off CLI commands. Host networking is needed for devkit discovery and SSH.
+    or one-off CLI commands. Use a Linux Docker host for host networking and LAN
+    devkit discovery. The image runs as UID 1000. The setup below changes ownership
+    of both host directories (including existing files) to that UID and makes them
+    owner-writable; this may require sudo for later host-side access if your UID differs.
+    Both mounts are required: LazyDeck configuration and SteamOS SSH pairing keys
+    and known hosts persist across runs. Do not delete existing pairing files.
   </p>
-  <pre class="codeblock"><code>docker run -i --rm --network host \
+  <pre class="codeblock"><code>mkdir -p "$HOME/.config/lazydeck" "$HOME/.config/steamos-devkit" &&
+sudo chown -R 1000 "$HOME/.config/lazydeck" "$HOME/.config/steamos-devkit" &&
+sudo chmod -R u+rwX "$HOME/.config/lazydeck" "$HOME/.config/steamos-devkit" &&
+docker run -i --rm --network host \
   -v "$HOME/.config/lazydeck:/home/lazydeck/.config/lazydeck" \
+  -v "$HOME/.config/steamos-devkit:/home/lazydeck/.config/steamos-devkit" \
   ghcr.io/kevintcoughlin/lazydeck:latest mcp</code></pre>
   <p style="color:var(--dim)">
     <code>checksums.txt</code> is signed with Sigstore keyless signing, and every
-    release ships SBOMs and GitHub build provenance. Verify a download end to end:
+    release ships SBOMs and GitHub build provenance. Download the desired artifact,
+    <code>checksums.txt</code>, and <code>checksums.txt.sigstore.json</code> from the
+    same release into one directory, then run these commands there with
+    <code>cosign</code> and GNU <code>sha256sum</code> installed. Checksum validation
+    runs only if signature verification succeeds; do not install on any failure:
   </p>
   <pre class="codeblock"><code>cosign verify-blob checksums.txt \
   --bundle checksums.txt.sigstore.json \
   --certificate-identity-regexp '^https://github.com/KevinTCoughlin/lazydeck/\.github/workflows/release\.yml@' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com &amp;&amp;
 sha256sum --ignore-missing -c checksums.txt</code></pre>
 </section>
 

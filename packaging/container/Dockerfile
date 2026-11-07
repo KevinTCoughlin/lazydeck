@@ -9,11 +9,9 @@
 #
 # Typical use is the stdio MCP server or a one-off CLI command. Devkit
 # discovery (mDNS) and SSH need the host's LAN, and pairing state lives in the
-# mounted config directory:
-#
-#   docker run -i --rm --network host \
-#     -v "$HOME/.config/lazydeck:/home/lazydeck/.config/lazydeck" \
-#     ghcr.io/kevintcoughlin/lazydeck mcp
+# two host directories. See README.md for first-run ownership setup (UID 1000)
+# and the complete command that persists both LazyDeck config and SteamOS SSH
+# pairing state; both mounts are required across container runs.
 FROM docker.io/library/debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
 
 ARG TARGETARCH
