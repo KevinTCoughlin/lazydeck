@@ -11,6 +11,19 @@ the last release are collected in the open `chore(main): release …` pull
 request rather than an Unreleased section here. Earlier entries follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0](https://github.com/KevinTCoughlin/lazydeck/compare/v0.2.2...v0.3.0) (2026-11-06)
+
+
+### Added
+
+* **packaging:** publish RPM packages for Fedora and RHEL ([#100](https://github.com/KevinTCoughlin/lazydeck/issues/100)) ([4ad5c1e](https://github.com/KevinTCoughlin/lazydeck/commit/4ad5c1ec7a7554a487e7a98b9215407128f3e443))
+
+
+### Fixed
+
+* repair the Nix flake and explain missing-Python installs ([#94](https://github.com/KevinTCoughlin/lazydeck/issues/94)) [skip ci] ([06896e6](https://github.com/KevinTCoughlin/lazydeck/commit/06896e6a566977b9b6de058f66ea675b5b6d3d30))
+* report the release version from the Nix flake ([#99](https://github.com/KevinTCoughlin/lazydeck/issues/99)) [skip ci] ([da1c204](https://github.com/KevinTCoughlin/lazydeck/commit/da1c204df9899103abe050bdc7c0c49b080e36e9))
+
 ## [0.2.2](https://github.com/KevinTCoughlin/lazydeck/compare/v0.2.1...v0.2.2) (2026-11-05)
 
 
