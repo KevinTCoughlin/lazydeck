@@ -101,11 +101,20 @@ sudo dnf install ./lazydeck_<version>_linux_amd64.rpm   # Fedora, RHEL
 
 A multi-arch container image (built from that Debian package) is published to
 GitHub Container Registry. It suits the stdio MCP server or one-off CLI
-commands; host networking is needed for devkit discovery and SSH:
+commands. Use a Linux Docker host for host networking and LAN devkit discovery.
+The image runs as UID 1000. This setup changes ownership of both host directories
+(including existing files) to UID 1000 and makes them owner-writable; later
+host-side access may require sudo if your UID differs. Keep both mounts to persist
+LazyDeck configuration and SteamOS SSH pairing keys and known hosts. Do not delete
+existing pairing files:
 
 ```bash
+mkdir -p "$HOME/.config/lazydeck" "$HOME/.config/steamos-devkit" &&
+sudo chown -R 1000 "$HOME/.config/lazydeck" "$HOME/.config/steamos-devkit" &&
+sudo chmod -R u+rwX "$HOME/.config/lazydeck" "$HOME/.config/steamos-devkit" &&
 docker run -i --rm --network host \
   -v "$HOME/.config/lazydeck:/home/lazydeck/.config/lazydeck" \
+  -v "$HOME/.config/steamos-devkit:/home/lazydeck/.config/steamos-devkit" \
   ghcr.io/kevintcoughlin/lazydeck:latest mcp
 ```
 
@@ -117,16 +126,20 @@ nix run github:KevinTCoughlin/lazydeck -- version
 nix develop github:KevinTCoughlin/lazydeck
 ```
 
-Release archives, Debian packages, checksums, SBOMs, and GitHub build
+Release archives, Debian and RPM packages, checksums, SBOMs, and GitHub build
 provenance are generated from the tagged commit. `checksums.txt` is signed
-with Sigstore keyless signing, so a download can be verified end to end:
+with Sigstore keyless signing. For the Linux amd64 archive example below, download
+the archive, `checksums.txt`, and `checksums.txt.sigstore.json` from the same release
+into one directory. Run the following there with `cosign`, GNU `sha256sum`, and
+GitHub CLI (`gh`) installed. Checksum validation runs only after successful
+signature verification; do not install on any failure:
 
 ```bash
 cosign verify-blob checksums.txt \
   --bundle checksums.txt.sigstore.json \
   --certificate-identity-regexp '^https://github.com/KevinTCoughlin/lazydeck/\.github/workflows/release\.yml@' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
-sha256sum --ignore-missing -c checksums.txt
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com &&
+sha256sum --ignore-missing -c checksums.txt &&
 gh attestation verify lazydeck_*_linux_amd64.tar.gz --repo KevinTCoughlin/lazydeck
 ```
 
