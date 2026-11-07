@@ -128,10 +128,11 @@ nix develop github:KevinTCoughlin/lazydeck
 
 Release archives, Debian and RPM packages, checksums, SBOMs, and GitHub build
 provenance are generated from the tagged commit. `checksums.txt` is signed
-with Sigstore keyless signing. Download the desired artifact, `checksums.txt`, and
-`checksums.txt.sigstore.json` from the same release into one directory. Run the
-following there with `cosign` and GNU `sha256sum` installed. Checksum validation
-runs only after successful signature verification; do not install on any failure:
+with Sigstore keyless signing. For the Linux amd64 archive example below, download
+the archive, `checksums.txt`, and `checksums.txt.sigstore.json` from the same release
+into one directory. Run the following there with `cosign`, GNU `sha256sum`, and
+GitHub CLI (`gh`) installed. Checksum validation runs only after successful
+signature verification; do not install on any failure:
 
 ```bash
 cosign verify-blob checksums.txt \
