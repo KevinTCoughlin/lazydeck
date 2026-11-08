@@ -21,9 +21,12 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
+	"os/user"
+	"sync"
 	"time"
 
+	"github.com/kevintcoughlin/lazydeck/internal/apikey"
+	"github.com/kevintcoughlin/lazydeck/internal/audit"
 	"github.com/kevintcoughlin/lazydeck/internal/client"
 	"github.com/kevintcoughlin/lazydeck/internal/config"
 	"github.com/kevintcoughlin/lazydeck/internal/jobs"
@@ -68,6 +71,17 @@ type Server struct {
 	cfg    *config.Config
 	jobs   *jobs.Manager
 	token  string
+
+	// keys, when set, authenticates long-lived API keys (issue #50) in
+	// addition to the session token. audit, when set, receives an entry
+	// for every mutating request, scope denial, failed API key, and job
+	// outcome (issue #49). Both are wired by Run; tests set them directly.
+	keys        *apikey.Store
+	audit       *audit.Log
+	sessionUser string
+
+	keyNamesMu sync.Mutex
+	keyNames   map[string]string // API key id -> name, for job.finished entries
 }
 
 // New builds a Server. token authenticates every /v1/ request. It errors if
@@ -89,15 +103,16 @@ func New(cli devkitClient, cfg *config.Config, token string) (*Server, error) {
 		jobs:   jobs.NewManager(maxConcurrentJobs),
 		token:  token,
 	}
-	if len(cfg.Webhooks) > 0 {
-		fanout := make(notify.Fanout, 0, len(cfg.Webhooks))
-		for _, url := range cfg.Webhooks {
-			fanout = append(fanout, notify.NewWebhook(url))
-		}
-		s.jobs.SetOnComplete(func(snap jobs.Snapshot) {
-			notifyJobComplete(fanout, snap)
-		})
+	var fanout notify.Fanout
+	for _, url := range cfg.Webhooks {
+		fanout = append(fanout, notify.NewWebhook(url))
 	}
+	s.jobs.SetOnComplete(func(snap jobs.Snapshot) {
+		s.auditJobFinished(snap)
+		if len(fanout) > 0 {
+			notifyJobComplete(fanout, snap)
+		}
+	})
 	return s, nil
 }
 
@@ -148,20 +163,22 @@ func notifyJobComplete(fanout notify.Fanout, snap jobs.Snapshot) {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /v1/health", s.handleHealth)
-	mux.HandleFunc("GET /v1/capabilities", s.handleCapabilities)
-	mux.HandleFunc("GET /v1/devices", s.handleListDevices)
-	mux.HandleFunc("POST /v1/devices/discover", s.handleDiscover)
-	mux.HandleFunc("POST /v1/devices/{id}/pair", s.handlePair)
-	mux.HandleFunc("GET /v1/devices/{id}/status", s.handleStatus)
-	mux.HandleFunc("GET /v1/devices/{id}/games", s.handleGames)
-	mux.HandleFunc("POST /v1/devices/{id}/deployments", s.handleDeploy)
-	mux.HandleFunc("POST /v1/devices/{id}/logs/sync", s.handleLogsSync)
-	mux.HandleFunc("POST /v1/devices/{id}/games/{gameID}/launch", s.handleLaunch)
-	mux.HandleFunc("POST /v1/devices/{id}/games/{gameID}/stop", s.handleStop)
-	mux.HandleFunc("GET /v1/jobs/{id}", s.handleGetJob)
-	mux.HandleFunc("GET /v1/jobs/{id}/events", s.handleJobEvents)
-	mux.HandleFunc("DELETE /v1/jobs/{id}", s.handleCancelJob)
+	// Each route names the API key scope it needs (the session token has
+	// them all) and an audit action; mutating routes are audited.
+	mux.HandleFunc("GET /v1/health", s.route("", "health", false, s.handleHealth))
+	mux.HandleFunc("GET /v1/capabilities", s.route(apikey.ScopeRead, "capabilities", false, s.handleCapabilities))
+	mux.HandleFunc("GET /v1/devices", s.route(apikey.ScopeRead, "devices.list", false, s.handleListDevices))
+	mux.HandleFunc("POST /v1/devices/discover", s.route(apikey.ScopeDiscover, "devices.discover", true, s.handleDiscover))
+	mux.HandleFunc("POST /v1/devices/{id}/pair", s.route(apikey.ScopePair, "devices.pair", true, s.handlePair))
+	mux.HandleFunc("GET /v1/devices/{id}/status", s.route(apikey.ScopeRead, "devices.status", false, s.handleStatus))
+	mux.HandleFunc("GET /v1/devices/{id}/games", s.route(apikey.ScopeRead, "games.list", false, s.handleGames))
+	mux.HandleFunc("POST /v1/devices/{id}/deployments", s.route(apikey.ScopeDeploy, "deploy", true, s.handleDeploy))
+	mux.HandleFunc("POST /v1/devices/{id}/logs/sync", s.route(apikey.ScopeLogsSync, "logs.sync", true, s.handleLogsSync))
+	mux.HandleFunc("POST /v1/devices/{id}/games/{gameID}/launch", s.route(apikey.ScopeDeploy, "games.launch", true, s.handleLaunch))
+	mux.HandleFunc("POST /v1/devices/{id}/games/{gameID}/stop", s.route(apikey.ScopeDeploy, "games.stop", true, s.handleStop))
+	mux.HandleFunc("GET /v1/jobs/{id}", s.route(apikey.ScopeRead, "jobs.get", false, s.handleGetJob))
+	mux.HandleFunc("GET /v1/jobs/{id}/events", s.route(apikey.ScopeRead, "jobs.events", false, s.handleJobEvents))
+	mux.HandleFunc("DELETE /v1/jobs/{id}", s.route(apikey.ScopeJobsCancel, "jobs.cancel", true, s.handleCancelJob))
 
 	return s.withAuth(jsonNotFoundHandler(mux))
 }
@@ -219,22 +236,6 @@ func (w *jsonErrorInterceptor) Flush() {
 	}
 }
 
-// withAuth requires "Authorization: Bearer <token>" on every request. The
-// token is per-launch (see generateToken) and never accepted from a query
-// parameter, so it cannot leak into shell history, logs, or a browser's URL
-// bar the way a query-string token would.
-func (s *Server) withAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		const prefix = "Bearer "
-		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, prefix) || auth[len(prefix):] != s.token {
-			writeError(w, "unauthorized", "missing or invalid bearer token")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // findDevice resolves a path {id} to its configured Device by Name. Device
 // names are already unique (config.AddDevice enforces it), so Name doubles
 // as a stable API identifier without inventing a separate ID scheme.
@@ -258,12 +259,46 @@ func (s *Server) deviceOr404(w http.ResponseWriter, r *http.Request) (config.Dev
 	return d, true
 }
 
+// Options configures Run beyond the device config.
+type Options struct {
+	// Port is the loopback TCP port to bind; 0 picks an ephemeral port.
+	// A fixed port lets a CI job running as another OS user, which can't
+	// read the 0600 connection file, still find the server.
+	Port int
+	// APIKeysPath is the API key store (see internal/apikey); "" disables
+	// API keys, leaving only the session token.
+	APIKeysPath string
+	// AuditLogPath is the append-only audit log (see internal/audit).
+	AuditLogPath string
+}
+
+// currentUsername names the OS user behind the session token in audit
+// entries; it's informational, so a lookup failure just leaves it blank.
+func currentUsername() string {
+	u, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	return u.Username
+}
+
 // Run starts `lazydeck serve`: binds an ephemeral loopback port, writes the
 // connection file engine plugins read to discover it (see connection.go),
 // and serves until ctx is cancelled, at which point it shuts down
 // gracefully — including cancelling and awaiting any in-flight jobs — and
 // removes the connection file it owns.
-func Run(ctx context.Context, cli devkitClient, cfg *config.Config) error {
+func Run(ctx context.Context, cli devkitClient, cfg *config.Config, opts Options) error {
+	if opts.Port < 0 || opts.Port > 65535 {
+		return fmt.Errorf("--port must be between 0 and 65535, got %d", opts.Port)
+	}
+	// Open the audit log before binding anything: serving mutations with
+	// no audit trail is worse than not starting (issue #49).
+	auditLog, err := audit.Open(opts.AuditLogPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = auditLog.Close() }()
+
 	connPath, err := connectionFilePath()
 	if err != nil {
 		return err
@@ -286,7 +321,7 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config) error {
 		return err
 	}
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", opts.Port))
 	if err != nil {
 		return fmt.Errorf("binding loopback listener: %w", err)
 	}
@@ -308,12 +343,17 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config) error {
 	// 0600 connection file, so it never lands in shell scrollback, a
 	// terminal multiplexer's history, or a captured log of this process's
 	// stdout.
-	fmt.Printf("lazydeck serve: listening on %s (connection file: %s)\n", info.BaseURL, connPath)
+	fmt.Printf("lazydeck serve: listening on %s (connection file: %s, audit log: %s)\n", info.BaseURL, connPath, opts.AuditLogPath)
 
 	apiServer, err := New(cli, cfg, token)
 	if err != nil {
 		_ = listener.Close()
 		return err
+	}
+	apiServer.audit = auditLog
+	apiServer.sessionUser = currentUsername()
+	if opts.APIKeysPath != "" {
+		apiServer.keys = apikey.NewStore(opts.APIKeysPath)
 	}
 	srv := &http.Server{
 		Handler:           apiServer.Handler(),

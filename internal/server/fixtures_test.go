@@ -49,6 +49,7 @@ func TestFixturesMatchResponseShapes(t *testing.T) {
 		}{}},
 		{"job_event.json", &eventFixture{}},
 		{"error_unauthorized.json", &errorEnvelope{}},
+		{"error_forbidden.json", &errorEnvelope{}},
 		{"error_not_found.json", &errorEnvelope{}},
 		{"error_device_busy.json", &errorEnvelope{}},
 		{"error_unsupported.json", &errorEnvelope{}},

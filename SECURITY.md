@@ -33,3 +33,16 @@ continuing, and only pair on a trusted LAN.
 The vendored protocol can deploy files and run commands with the paired
 device's user privileges. Treat discovered devices, config files, custom
 commands, and release artifacts accordingly.
+
+## `lazydeck serve` credentials and audit log
+
+`lazydeck serve` listens on loopback only. It accepts two kinds of bearer
+credential: the per-launch session token in its `0600` connection file, which
+can do everything, and long-lived API keys from `lazydeck api-key create`,
+which can do only what their scopes allow. API keys are stored as SHA-256
+digests, never in plain text, and are compared in constant time; revoke one
+with `lazydeck api-key revoke`. If the key store can't be read, every API key
+is rejected. `serve` refuses to start if it can't open its append-only audit
+log, which records mutating requests, scope denials, rejected API keys, and
+job outcomes, and never credentials. See the README's "CI, API keys, and the
+audit log" section.

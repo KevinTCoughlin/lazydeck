@@ -4,6 +4,7 @@ _lazydeck() {
   local -a commands
   commands=(
     'serve:run the local engine-integration API'
+    'api-key:manage lazydeck serve API keys'
     'version:print version and build metadata'
     'help:show usage information'
   )
@@ -15,7 +16,14 @@ _lazydeck() {
 
   case "$words[2]" in
     serve)
-      _arguments '--fixture[use the in-memory test backend]' '--help[show usage]' '-h[show usage]'
+      _arguments '--fixture[use the in-memory test backend]' '--port[loopback port to bind]:port' '--help[show usage]' '-h[show usage]'
+      ;;
+    api-key)
+      if (( CURRENT == 3 )); then
+        _values 'api-key command' create list revoke
+      elif [[ "$words[3]" == create ]]; then
+        _arguments '--name[key label]:name' '--scopes[comma-separated scopes]:scopes' '--expires-in[lifetime, e.g. 2160h]:duration'
+      fi
       ;;
     version)
       _arguments '--check[compare against the latest stable release]'

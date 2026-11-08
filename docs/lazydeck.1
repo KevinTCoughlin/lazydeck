@@ -6,6 +6,10 @@ lazydeck \- terminal UI and local API for Steam devkits
 .br
 .B lazydeck serve
 .RI [ --fixture ]
+.RI [ "--port N" ]
+.br
+.B lazydeck api-key
+.IR create | list | revoke
 .br
 .B lazydeck mcp
 .RI [ --fixture ]
@@ -35,6 +39,25 @@ on Linux.
 .B lazydeck serve --fixture
 Start the API using an in-memory backend. This is intended for integration
 tests and does not connect to a Steam device.
+.TP
+.B lazydeck serve --port INR
+Bind loopback port
+.I N
+instead of an ephemeral port, so a CI job that cannot read the connection
+file can still reach the server with an API key.
+.TP
+.B lazydeck api-key create --name INAMER R[B--scopesR Iread,deployR] [B--expires-inR I2160hR]
+Create a long-lived, scoped API key for
+.BR "lazydeck serve" ,
+printed once on standard output. Only its SHA-256 digest is stored, in
+.IR ~/.config/lazydeck/api-keys.json .
+Scopes: read, discover, pair, deploy, logs:sync, jobs:cancel.
+.TP
+.B lazydeck api-key list
+List API key ids, names, scopes, and states. Never prints keys.
+.TP
+.B lazydeck api-key revoke IIDR
+Revoke a key. A running server rejects it from the next request.
 .TP
 .B lazydeck mcp
 Run a Model Context Protocol server over stdio. By default it registers only
@@ -74,7 +97,18 @@ Optional custom TUI commands. Defaults to
 .I $XDG_RUNTIME_DIR/lazydeck/serve.json
 Authenticated connection information for editor integrations. This file is
 created with mode 0600 and exists only for the desktop session.
+.TP
+.I $XDG_CONFIG_HOME/lazydeck/api-keys.json
+API key ids, names, scopes, and SHA-256 digests (never the keys). Mode 0600.
+.TP
+.I $XDG_STATE_HOME/lazydeck/audit.log
+Append-only JSON-lines audit log of mutating API requests, scope denials,
+rejected API keys, and job outcomes. Defaults to
+.IR ~/.local/state/lazydeck/audit.log .
 .SH ENVIRONMENT
+.TP
+.B LAZYDECK_AUDIT_LOG
+Override the audit log path.
 .TP
 .B LAZYDECK_PYTHON_DIR
 Override the bundled Python bridge location.

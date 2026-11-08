@@ -27,12 +27,14 @@ fi
 
 sandbox="$(mktemp -d)"
 # Deliberately does NOT override $HOME: lazydeck's own config is isolated
-# via XDG_CONFIG_HOME/XDG_RUNTIME_DIR below (both absolute, independent of
+# via XDG_CONFIG_HOME/XDG_RUNTIME_DIR/XDG_STATE_HOME below (both absolute, independent of
 # HOME), but Godot's already-installed export templates and editor data
 # live under $HOME/.local/share (or $XDG_DATA_HOME, left untouched) --
 # overriding HOME would make those invisible and break export.
 export XDG_CONFIG_HOME="${sandbox}/config"
 export XDG_RUNTIME_DIR="${sandbox}/runtime"
+# Keeps serve's audit log out of the host's real ~/.local/state.
+export XDG_STATE_HOME="${sandbox}/state"
 export LAZYDECK_TEST_EXPORT_DIR="${sandbox}/export"
 mkdir -p "${XDG_CONFIG_HOME}/lazydeck" "${XDG_RUNTIME_DIR}" "${LAZYDECK_TEST_EXPORT_DIR}"
 cp "${ROOT}/scripts/fixtures/devices.toml" "${XDG_CONFIG_HOME}/lazydeck/devices.toml"

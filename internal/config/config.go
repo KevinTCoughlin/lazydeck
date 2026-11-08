@@ -196,6 +196,20 @@ func UserConfigPath() (string, error) {
 	return resolvePath("config.yml")
 }
 
+// APIKeysPath returns ~/.config/lazydeck/api-keys.json (honoring
+// $XDG_CONFIG_HOME): the store `lazydeck api-key` writes and `lazydeck
+// serve` reads to authenticate long-lived, scoped API keys (issue #50).
+// It holds only SHA-256 digests of keys, never the keys themselves.
+func APIKeysPath() (string, error) {
+	return resolvePath("api-keys.json")
+}
+
+// WriteFileAtomic is writeFileAtomic for other packages that keep their own
+// files under the config directory (e.g. internal/apikey's key store).
+func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+	return writeFileAtomic(path, data, perm)
+}
+
 // resolvePath returns the canonical, cross-platform path
 // ~/.config/lazydeck/<filename> ($XDG_CONFIG_HOME/lazydeck/<filename> when
 // set), creating the parent directory if needed.
