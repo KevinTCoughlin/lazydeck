@@ -25,6 +25,8 @@ func statusForKind(kind string) int {
 	switch kind {
 	case "unauthorized":
 		return http.StatusUnauthorized
+	case "forbidden":
+		return http.StatusForbidden
 	case "invalid-input", "invalid-request":
 		return http.StatusBadRequest
 	case "not-found":
@@ -45,6 +47,9 @@ func writeError(w http.ResponseWriter, kind, message string) {
 }
 
 func writeErrorStatus(w http.ResponseWriter, status int, kind, message string) {
+	if rec, ok := w.(interface{ setErrorKind(string) }); ok {
+		rec.setErrorKind(kind) // for the audit entry (see statusWriter)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(errorEnvelope{Error: apiError{Kind: kind, Message: message}})

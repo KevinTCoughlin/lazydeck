@@ -444,6 +444,40 @@ Try prompts like "what Steam devkits do I have configured?", "check the
 status of both devices", or "discover Steam devkits on my LAN". See
 [`docs/mcp.md`](docs/mcp.md) for setup and the mutation-enabled configuration.
 
+### CI, API keys, and the audit log
+
+The editor integrations and `lazydeck mcp` authenticate with the per-launch
+session token in `serve`'s connection file. A CI job usually needs something
+else: a credential that survives `serve` restarts, works for a build user
+that can't read your `0600` connection file, and grants only what the job
+needs. Create a scoped API key for it:
+
+```bash
+lazydeck api-key create --name ci-build --scopes read,deploy,logs:sync --expires-in 2160h
+lazydeck api-key list
+lazydeck api-key revoke <id>   # takes effect on a running serve immediately
+```
+
+The key prints once, on stdout; store it in your CI secret store. LazyDeck
+keeps only its SHA-256 digest (`~/.config/lazydeck/api-keys.json`, mode
+`0600`) and compares in constant time. Scopes are `read`, `discover`,
+`pair`, `deploy`, `logs:sync`, and `jobs:cancel`; a key may cancel only jobs
+it started. Run `lazydeck serve --port 47600` (any free port) so the job can
+find the server without the connection file, then send
+`Authorization: Bearer $LAZYDECK_API_KEY`. `serve` stays loopback-only, so
+the CI runner must be on the same machine.
+
+`serve` appends one JSON line per mutating request (discover, pair, deploy,
+log sync, cancel), scope denial, rejected API key, and finished job to
+`$XDG_STATE_HOME/lazydeck/audit.log` (default
+`~/.local/state/lazydeck/audit.log`, override with `LAZYDECK_AUDIT_LOG`).
+Each line records the time, the actor (key id and name, or the local user
+behind the session token), the action, device, game, build directory, job,
+and result. It never records tokens, keys, digests, launch arguments, or
+webhook URLs. LazyDeck only ever appends to it; for tamper resistance, make
+it append-only at the filesystem level (`sudo chattr +a`) or ship it to a
+log collector.
+
 ## Troubleshooting
 
 - **"could not locate a complete Python runtime"** — set `LAZYDECK_PYTHON_DIR`

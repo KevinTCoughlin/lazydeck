@@ -76,6 +76,11 @@ type Snapshot struct {
 	FinishedAt  *time.Time `json:"finished_at,omitempty"`
 	LastMessage string     `json:"last_message,omitempty"`
 	Error       *Error     `json:"error,omitempty"`
+
+	// Actor identifies who submitted the job (see SubmitAs). It is kept
+	// out of the API's JSON so the /v1 response shape is unchanged; the
+	// server uses it for audit entries and cancel authorization.
+	Actor string `json:"-"`
 }
 
 // Job is one submitted operation. All mutable fields are guarded by mu so
@@ -85,6 +90,7 @@ type Job struct {
 	ID        string
 	DeviceID  string
 	Operation string
+	Actor     string
 	CreatedAt time.Time
 
 	mu         sync.Mutex
@@ -106,6 +112,7 @@ func (j *Job) Snapshot() Snapshot {
 		ID:        j.ID,
 		DeviceID:  j.DeviceID,
 		Operation: j.Operation,
+		Actor:     j.Actor,
 		Status:    j.status,
 		CreatedAt: j.CreatedAt,
 		Error:     j.lastErr,
@@ -239,6 +246,13 @@ func NewManager(maxConcurrent int) *Manager {
 // Submit creates and starts a job for deviceID running run, or returns
 // ErrDeviceBusy if deviceID already has a queued/running job.
 func (m *Manager) Submit(deviceID, operation string, run Run) (*Job, error) {
+	return m.SubmitAs("", deviceID, operation, run)
+}
+
+// SubmitAs is Submit, recording actor (an opaque caller identity) on the
+// job so it's available to the completion hook and to authorization checks
+// before the job could possibly have finished.
+func (m *Manager) SubmitAs(actor, deviceID, operation string, run Run) (*Job, error) {
 	m.mu.Lock()
 	if _, busy := m.deviceBusy[deviceID]; busy {
 		m.mu.Unlock()
@@ -255,6 +269,7 @@ func (m *Manager) Submit(deviceID, operation string, run Run) (*Job, error) {
 		ID:        id,
 		DeviceID:  deviceID,
 		Operation: operation,
+		Actor:     actor,
 		CreatedAt: time.Now(),
 		status:    Queued,
 		changed:   make(chan struct{}),

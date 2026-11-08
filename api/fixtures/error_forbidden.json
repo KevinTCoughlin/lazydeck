@@ -1,0 +1,6 @@
+{
+  "error": {
+    "kind": "forbidden",
+    "message": "this credential lacks the \"deploy\" scope"
+  }
+}

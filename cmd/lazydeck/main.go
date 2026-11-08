@@ -5,15 +5,19 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"runtime"
 	"runtime/debug"
 	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kevintcoughlin/lazydeck/internal/audit"
 	"github.com/kevintcoughlin/lazydeck/internal/client"
 	"github.com/kevintcoughlin/lazydeck/internal/config"
 	"github.com/kevintcoughlin/lazydeck/internal/fixture"
@@ -49,7 +53,19 @@ func main() {
 			printUsage()
 			return
 		case "serve":
-			if err := runServe(hasFlag(os.Args[2:], "--fixture")); err != nil {
+			if err := runServe(os.Args[2:]); err != nil {
+				if errors.Is(err, flag.ErrHelp) {
+					return
+				}
+				fmt.Fprintln(os.Stderr, "lazydeck:", err)
+				os.Exit(1)
+			}
+			return
+		case "api-key":
+			if err := runAPIKeyCommand(os.Args[2:]); err != nil {
+				if errors.Is(err, flag.ErrHelp) {
+					return
+				}
 				fmt.Fprintln(os.Stderr, "lazydeck:", err)
 				os.Exit(1)
 			}
@@ -127,6 +143,18 @@ Usage:
                       real Steam Deck/Steam Machine is reachable. Shape its
                       behavior with LAZYDECK_FIXTURE_* env vars; see
                       internal/fixture's package doc.
+  lazydeck serve --port N
+                      Bind loopback port N instead of an ephemeral one, so
+                      CI jobs (possibly running as another OS user, which
+                      can't read the connection file) can find the server.
+  lazydeck api-key create --name NAME [--scopes read,deploy] [--expires-in 2160h]
+                      Create a long-lived API key for lazydeck serve, e.g.
+                      for CI. Prints the key once, on stdout. Scopes: read,
+                      discover, pair, deploy, logs:sync, jobs:cancel.
+  lazydeck api-key list
+                      List API keys (ids, names, scopes; never the keys).
+  lazydeck api-key revoke ID
+                      Revoke a key; a running serve rejects it immediately.
   lazydeck mcp        Run a Model Context Protocol server over stdio for
                       LLM agents (Claude Desktop, VS Code Copilot, etc.),
                       wrapping the same API as the Godot/Unity integrations.
@@ -155,6 +183,9 @@ Environment:
                        lazydeck serve when no instance is running.
   LAZYDECK_BIN         Executable lazydeck mcp auto-starts as
                        lazydeck serve (default: this same binary).
+  LAZYDECK_AUDIT_LOG   lazydeck serve's append-only audit log (default:
+                       $XDG_STATE_HOME/lazydeck/audit.log, else
+                       ~/.local/state/lazydeck/audit.log).
 
 See README.md for configuration and the LAN SSH trust model.
 `)
@@ -200,7 +231,17 @@ func run() error {
 // integration tests and container-based CI can exercise the full API
 // surface (deploy/poll/cancel/log-sync/etc) without uv, Python, SSH,
 // rsync, or real Steam Deck/Steam Machine hardware.
-func runServe(useFixture bool) error {
+func runServe(args []string) error {
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	useFixture := fs.Bool("fixture", false, "use the in-memory fake devkit backend")
+	port := fs.Int("port", 0, "loopback port to bind (0 = ephemeral)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	}
+
 	path, err := config.DefaultPath()
 	if err != nil {
 		return err
@@ -209,19 +250,36 @@ func runServe(useFixture bool) error {
 	if err != nil {
 		return err
 	}
+	keysPath, err := config.APIKeysPath()
+	if err != nil {
+		return err
+	}
+	auditPath, err := audit.DefaultPath()
+	if err != nil {
+		return err
+	}
+	opts := server.Options{Port: *port, APIKeysPath: keysPath, AuditLogPath: auditPath}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if useFixture {
-		return server.Run(ctx, fixture.NewFromEnv(), cfg)
+	if *useFixture {
+		return server.Run(ctx, fixture.NewFromEnv(), cfg, opts)
 	}
 
 	cli, err := client.New()
 	if err != nil {
 		return err
 	}
-	return server.Run(ctx, cli, cfg)
+	return server.Run(ctx, cli, cfg, opts)
+}
+
+func runAPIKeyCommand(args []string) error {
+	path, err := config.APIKeysPath()
+	if err != nil {
+		return err
+	}
+	return runAPIKey(args, path, os.Stdout, os.Stderr, time.Now())
 }
 
 // hasFlag reports whether name appears verbatim among args, so subcommands

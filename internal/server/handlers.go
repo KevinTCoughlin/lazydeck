@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kevintcoughlin/lazydeck/internal/audit"
 	"github.com/kevintcoughlin/lazydeck/internal/client"
 	"github.com/kevintcoughlin/lazydeck/internal/jobs"
 )
@@ -215,7 +216,8 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := s.jobs.Submit(d.Name, "deploy", func(ctx context.Context, report func(string)) error {
+	annotateAudit(r, func(e *audit.Entry) { e.GameID, e.Directory = req.GameID, req.Directory })
+	job, err := s.jobs.SubmitAs(principalFrom(r.Context()).jobActor(), d.Name, "deploy", func(ctx context.Context, report func(string)) error {
 		ctx, cancel := context.WithTimeout(ctx, deployTimeout)
 		defer cancel()
 		report("deploying to " + d.Name)
@@ -225,6 +227,7 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		writeSubmitError(w, err)
 		return
 	}
+	annotateAudit(r, func(e *audit.Entry) { e.JobID = job.ID })
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job.Snapshot()})
 }
 
@@ -260,7 +263,8 @@ func (s *Server) handleLogsSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := s.jobs.Submit(d.Name, "logs-sync", func(ctx context.Context, report func(string)) error {
+	annotateAudit(r, func(e *audit.Entry) { e.GameID, e.Directory = req.GameID, req.Directory })
+	job, err := s.jobs.SubmitAs(principalFrom(r.Context()).jobActor(), d.Name, "logs-sync", func(ctx context.Context, report func(string)) error {
 		ctx, cancel := context.WithTimeout(ctx, logsSyncTimeout)
 		defer cancel()
 		report("syncing logs from " + d.Name)
@@ -270,6 +274,7 @@ func (s *Server) handleLogsSync(w http.ResponseWriter, r *http.Request) {
 		writeSubmitError(w, err)
 		return
 	}
+	annotateAudit(r, func(e *audit.Entry) { e.JobID = job.ID })
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job.Snapshot()})
 }
 
@@ -294,8 +299,23 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"job": job.Snapshot()})
 }
 
+// handleCancelJob cancels a job. An API key may cancel only jobs it
+// started, so one CI pipeline's key can't abort another team member's
+// deploy; the session token (the local user who runs serve) may cancel any.
 func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
-	job, err := s.jobs.Cancel(r.PathValue("id"))
+	id := r.PathValue("id")
+	annotateAudit(r, func(e *audit.Entry) { e.JobID = id })
+	existing, err := s.jobs.Get(id)
+	if err != nil {
+		writeError(w, "not-found", err.Error())
+		return
+	}
+	annotateAudit(r, func(e *audit.Entry) { e.Device = existing.DeviceID })
+	if p := principalFrom(r.Context()); p.kind != audit.ActorSession && existing.Actor != p.jobActor() {
+		writeError(w, "forbidden", "API keys can only cancel jobs they started")
+		return
+	}
+	job, err := s.jobs.Cancel(id)
 	if err != nil {
 		writeError(w, "not-found", err.Error())
 		return
