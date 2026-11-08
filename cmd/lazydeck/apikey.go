@@ -23,6 +23,7 @@ func runAPIKey(args []string, path string, stdout, stderr io.Writer, now time.Ti
 		fs.SetOutput(stderr)
 		name := fs.String("name", "", "a label for the key, e.g. ci-build (required)")
 		scopes := fs.String("scopes", string(apikey.ScopeRead), "comma-separated scopes: read,discover,pair,deploy,logs:sync,jobs:cancel")
+		devices := fs.String("devices", "", "comma-separated device names the key is limited to (default: every device)")
 		expiresIn := fs.Duration("expires-in", 0, "lifetime, e.g. 2160h; 0 means no expiry")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
@@ -37,13 +38,20 @@ func runAPIKey(args []string, path string, stdout, stderr io.Writer, now time.Ti
 		if err != nil {
 			return err
 		}
-		token, key, err := apikey.Create(path, *name, parsed, *expiresIn, now)
+		parsedDevices, err := apikey.ParseDevices(*devices)
+		if err != nil {
+			return err
+		}
+		token, key, err := apikey.CreateForDevices(path, *name, parsed, parsedDevices, *expiresIn, now)
 		if err != nil {
 			return err
 		}
 		// The key goes to stdout alone so `KEY=$(lazydeck api-key create
 		// ...)` captures exactly it; everything else goes to stderr.
 		_, _ = fmt.Fprintf(stderr, "Created API key %s (%s) with scopes %s", key.ID, key.Name, key.ScopeList())
+		if len(key.Devices) > 0 {
+			_, _ = fmt.Fprintf(stderr, ", limited to devices %s", key.DeviceList())
+		}
 		if key.ExpiresAt != nil {
 			_, _ = fmt.Fprintf(stderr, ", expiring %s", key.ExpiresAt.Format(time.RFC3339))
 		}
@@ -64,13 +72,13 @@ func runAPIKey(args []string, path string, stdout, stderr io.Writer, now time.Ti
 			return err
 		}
 		tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-		_, _ = fmt.Fprintln(tw, "ID\tNAME\tSCOPES\tSTATE\tCREATED\tEXPIRES")
+		_, _ = fmt.Fprintln(tw, "ID\tNAME\tSCOPES\tDEVICES\tSTATE\tCREATED\tEXPIRES")
 		for _, k := range keys {
 			expires := "never"
 			if k.ExpiresAt != nil {
 				expires = k.ExpiresAt.Format(time.RFC3339)
 			}
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", k.ID, k.Name, k.ScopeList(), k.State(now), k.CreatedAt.Format(time.RFC3339), expires)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", k.ID, k.Name, k.ScopeList(), k.DeviceList(), k.State(now), k.CreatedAt.Format(time.RFC3339), expires)
 		}
 		return tw.Flush()
 

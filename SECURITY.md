@@ -36,7 +36,7 @@ commands, and release artifacts accordingly.
 
 ## `lazydeck serve` credentials and audit log
 
-`lazydeck serve` listens on loopback only. It accepts two kinds of bearer
+`lazydeck serve` listens on loopback by default. It accepts two kinds of bearer
 credential: the per-launch session token in its `0600` connection file, which
 can do everything, and long-lived API keys from `lazydeck api-key create`,
 which can do only what their scopes allow. API keys are stored as SHA-256
@@ -46,3 +46,20 @@ is rejected. `serve` refuses to start if it can't open its append-only audit
 log, which records mutating requests, scope denials, rejected API keys, and
 job outcomes, and never credentials. See the README's "CI, API keys, and the
 audit log" section.
+
+API keys can be limited to named devices (`--devices`). Such a key gets
+`403` for any other device, including names that don't exist, and can't see
+other devices' jobs.
+
+`lazydeck serve --listen HOST:PORT` is the only way to accept connections
+from other machines, and it is opt-in. That listener accepts API keys only,
+never the session token. `serve` refuses to start it unless an active API key
+exists, and warns on stderr whenever the address is not loopback. It speaks
+plain HTTP: use it only on a trusted network, or keep `serve` on loopback
+behind a TLS-terminating reverse proxy.
+
+A shared device registry (`registry` / `LAZYDECK_REGISTRY`) is trusted input
+in the same way `devices.toml` is: whoever can write it decides which hosts
+lazydeck deploys builds to. Keep it somewhere only trusted people can change,
+such as a reviewed git repository or a share with restricted write access.
+lazydeck only reads it.

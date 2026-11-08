@@ -68,8 +68,12 @@ type deviceResponse struct {
 }
 
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
+	p := principalFrom(r.Context())
 	devices := make([]deviceResponse, 0, len(s.cfg.Devices))
 	for _, d := range s.cfg.Devices {
+		if !p.allowsDevice(d.Name) {
+			continue // a device-scoped key sees only its own devices
+		}
 		devices = append(devices, deviceResponse{ID: d.Name, Machine: d.Machine, Login: d.Login})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"devices": devices})
@@ -290,8 +294,22 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	writeErrorStatus(w, http.StatusNotImplemented, "unsupported", "remote stop is not supported by the SteamOS devkit protocol; stop the title from the device's Steam UI")
 }
 
-func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
+// visibleJob looks up a job by id, treating a job on a device a
+// device-scoped API key can't use as not found, so such a key can't watch
+// another device's deploys by guessing job ids.
+func (s *Server) visibleJob(r *http.Request) (*jobs.Job, error) {
 	job, err := s.jobs.Get(r.PathValue("id"))
+	if err != nil {
+		return nil, err
+	}
+	if !principalFrom(r.Context()).allowsDevice(job.DeviceID) {
+		return nil, jobs.ErrNotFound
+	}
+	return job, nil
+}
+
+func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
+	job, err := s.visibleJob(r)
 	if err != nil {
 		writeError(w, "not-found", err.Error())
 		return
@@ -305,7 +323,7 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	annotateAudit(r, func(e *audit.Entry) { e.JobID = id })
-	existing, err := s.jobs.Get(id)
+	existing, err := s.visibleJob(r)
 	if err != nil {
 		writeError(w, "not-found", err.Error())
 		return
@@ -329,7 +347,7 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 // net/http on the server and a plain EventSource/HTTPClient stream reader
 // on the Godot/Unity side.
 func (s *Server) handleJobEvents(w http.ResponseWriter, r *http.Request) {
-	job, err := s.jobs.Get(r.PathValue("id"))
+	job, err := s.visibleJob(r)
 	if err != nil {
 		writeError(w, "not-found", err.Error())
 		return

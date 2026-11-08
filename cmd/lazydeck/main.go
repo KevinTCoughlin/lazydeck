@@ -147,10 +147,20 @@ Usage:
                       Bind loopback port N instead of an ephemeral one, so
                       CI jobs (possibly running as another OS user, which
                       can't read the connection file) can find the server.
+  lazydeck serve --listen HOST:PORT
+                      Also listen on HOST:PORT (e.g. 0.0.0.0:47600) so other
+                      machines on a trusted network can connect. Plain HTTP;
+                      accepts API keys only, and refuses to start until an
+                      active key exists. See README "Sharing serve".
+  lazydeck serve --registry PATH
+                      Load the shared device registry at PATH (see
+                      LAZYDECK_REGISTRY below).
   lazydeck api-key create --name NAME [--scopes read,deploy] [--expires-in 2160h]
+                      [--devices NAME,NAME]
                       Create a long-lived API key for lazydeck serve, e.g.
                       for CI. Prints the key once, on stdout. Scopes: read,
                       discover, pair, deploy, logs:sync, jobs:cancel.
+                      --devices limits the key to those devices.
   lazydeck api-key list
                       List API keys (ids, names, scopes; never the keys).
   lazydeck api-key revoke ID
@@ -183,6 +193,12 @@ Environment:
                        lazydeck serve when no instance is running.
   LAZYDECK_BIN         Executable lazydeck mcp auto-starts as
                        lazydeck serve (default: this same binary).
+  LAZYDECK_REGISTRY    Shared, read-only device registry (a devices.toml-style
+                       file of [[device]] tables, e.g. on a network share or
+                       in a git checkout). Overrides devices.toml's registry.
+  LAZYDECK_REGISTRY_MODE
+                       merge (default: local devices override shared ones by
+                       name) or replace (shared devices only).
   LAZYDECK_AUDIT_LOG   lazydeck serve's append-only audit log (default:
                        $XDG_STATE_HOME/lazydeck/audit.log, else
                        ~/.local/state/lazydeck/audit.log).
@@ -235,6 +251,8 @@ func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	useFixture := fs.Bool("fixture", false, "use the in-memory fake devkit backend")
 	port := fs.Int("port", 0, "loopback port to bind (0 = ephemeral)")
+	listen := fs.String("listen", "", "also listen on HOST:PORT for API keys only, e.g. 0.0.0.0:47600 (trusted networks only; see README)")
+	registry := fs.String("registry", "", "shared device registry to load (overrides $LAZYDECK_REGISTRY and devices.toml's registry)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -246,9 +264,12 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg, err := config.Load(path)
+	cfg, err := config.LoadWithOptions(path, config.LoadOptions{Registry: *registry})
 	if err != nil {
 		return err
+	}
+	if info, ok := cfg.SharedRegistry(); ok {
+		fmt.Printf("lazydeck serve: %s (restart serve to pick up registry changes)\n", info.Summary())
 	}
 	keysPath, err := config.APIKeysPath()
 	if err != nil {
@@ -258,7 +279,7 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	opts := server.Options{Port: *port, APIKeysPath: keysPath, AuditLogPath: auditPath}
+	opts := server.Options{Port: *port, Listen: *listen, APIKeysPath: keysPath, AuditLogPath: auditPath}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

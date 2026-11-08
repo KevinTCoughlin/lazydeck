@@ -3,7 +3,7 @@ info:
   title: LazyDeck local service API
   version: "1.0.0"
   description: |
-    Versioned, localhost-only HTTP+SSE API over LazyDeck's existing SteamOS
+    Versioned, loopback-by-default HTTP+SSE API over LazyDeck's existing SteamOS
     Devkit operations (see issue #13). Engine integrations (the Godot
     plugin in issue #14, a Unity package, and the `lazydeck mcp` Model
     Context Protocol server for LLM agents) consume this contract
@@ -27,7 +27,9 @@ servers:
       connection file `lazydeck serve` writes on startup (see
       internal/server/connection.go), not from this document. A CI job
       that can't read that file can use `lazydeck serve --port N` and an
-      API key instead.
+      API key instead. `lazydeck serve --listen HOST:PORT` (opt-in, issue
+      #48) adds a second, API-key-only listener reachable from other
+      machines; the same routes are served there.
     variables:
       port:
         default: "0"
@@ -66,7 +68,9 @@ paths:
 
   /v1/devices:
     get:
-      summary: List configured devices (devices.toml).
+      summary: List configured devices (devices.toml, merged with any shared registry).
+      description: >-
+        A device-scoped API key sees only the devices it is limited to.
       operationId: listDevices
       responses:
         "200":
@@ -424,7 +428,11 @@ components:
         `pair`, `deploy` (deployments, and the reserved launch/stop
         routes), `logs:sync`, and `jobs:cancel` (only jobs the same key
         started). Any valid credential may call /v1/health. A credential
-        without the route's scope gets 403 with kind `forbidden`. Required
+        without the route's scope gets 403 with kind `forbidden`. An API key
+        created with `--devices` is limited to those device ids: any other
+        {deviceId} gets 403 (even one that doesn't exist), and other
+        devices' jobs are 404. On the `serve --listen` listener only API keys
+        are accepted; the session token gets 401 there. Required
         on every /v1/ route, including /v1/health. Mutating requests,
         scope denials, failed API keys, and job outcomes are recorded in
         serve's append-only audit log (issue #49).
@@ -527,7 +535,9 @@ components:
           schema:
             $ref: "#/components/schemas/ApiErrorEnvelope"
     Forbidden:
-      description: The credential is valid but lacks the scope this route needs.
+      description: >-
+        The credential is valid but lacks the scope this route needs, or is
+        an API key limited to other devices.
       content:
         application/json:
           schema:

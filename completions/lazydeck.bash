@@ -10,7 +10,7 @@ _lazydeck()
             ;;
         2)
             if [[ "${COMP_WORDS[1]}" == "serve" ]]; then
-                COMPREPLY=($(compgen -W '--fixture --port --help -h' -- "${cur}"))
+                COMPREPLY=($(compgen -W '--fixture --port --listen --registry --help -h' -- "${cur}"))
             elif [[ "${COMP_WORDS[1]}" == "api-key" ]]; then
                 COMPREPLY=($(compgen -W 'create list revoke' -- "${cur}"))
             elif [[ "${COMP_WORDS[1]}" == "version" ]]; then

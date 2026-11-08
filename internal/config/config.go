@@ -20,6 +20,10 @@ type Device struct {
 	Name    string `toml:"name"`    // display name, e.g. "steam-machine-livingroom"
 	Machine string `toml:"machine"` // hostname / IP / mDNS service name passed to the client
 	Login   string `toml:"login"`   // optional remote username override
+
+	// Origin records where this entry came from once a shared registry
+	// is merged in (see LoadWithOptions). It is never written to TOML.
+	Origin Origin `toml:"-"`
 }
 
 type Config struct {
@@ -36,6 +40,24 @@ type Config struct {
 	// webhook URLs are detected and formatted natively; any other URL
 	// gets a generic JSON body, for a custom bridge (e.g. IRC).
 	Webhooks []string `toml:"webhooks"`
+
+	// Registry is the path of a shared, read-only device registry (issue
+	// #48), e.g. a file on a network share or in a team's git checkout.
+	// Relative paths resolve against this file's directory. The
+	// LAZYDECK_REGISTRY environment variable, and `serve --registry`,
+	// override it. See registry.go.
+	Registry string `toml:"registry,omitempty"`
+
+	// RegistryMode is "merge" (the default: shared devices plus local
+	// ones, a local entry overriding a shared one of the same name) or
+	// "replace" (shared devices only; local [[device]] entries are
+	// ignored). LAZYDECK_REGISTRY_MODE overrides it.
+	RegistryMode string `toml:"registry_mode,omitempty"`
+
+	// shared is set when a shared registry was merged into Devices. It
+	// keeps the local-only device list so Save never copies shared
+	// entries into the local file.
+	shared *sharedState
 }
 
 // DefaultPath returns ~/.config/lazydeck/devices.toml (honoring
@@ -48,7 +70,15 @@ func DefaultPath() (string, error) {
 
 // Load reads the config at path, creating a starter file with inline
 // documentation if it does not exist yet.
+//
+// If a shared registry is configured (see LoadWithOptions), it is merged
+// in; Load is LoadWithOptions with no command-line override.
 func Load(path string) (*Config, error) {
+	return LoadWithOptions(path, LoadOptions{})
+}
+
+// loadLocal reads only the local devices.toml at path.
+func loadLocal(path string) (*Config, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := writeStarter(path); err != nil {
 			return nil, err
@@ -68,9 +98,20 @@ func Load(path string) (*Config, error) {
 // concurrent reader never observes a truncated or partially written config.
 // It is used by the TUI's device-discovery wizard to persist newly added
 // devices without requiring the user to hand-edit devices.toml.
+//
+// When cfg has a shared registry merged in, only the local devices are
+// written: lazydeck never copies shared entries into devices.toml, and never
+// writes to the shared registry itself.
 func Save(path string, cfg *Config) error {
+	out := cfg
+	if cfg.shared != nil {
+		local := *cfg
+		local.Devices = cfg.shared.local
+		local.shared = nil
+		out = &local
+	}
 	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
+	if err := toml.NewEncoder(&buf).Encode(out); err != nil {
 		return fmt.Errorf("encoding config: %w", err)
 	}
 	dir := filepath.Dir(path)
@@ -134,19 +175,39 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 // returns an error if a device with the same Name already exists. The
 // in-memory config is only mutated after the write succeeds, so a failed
 // save never leaves cfg holding a device that isn't on disk.
+//
+// With a shared registry, d is written to the local file only (the
+// registry is read-only), and a name already in the registry counts as
+// existing. In "replace" mode local devices are ignored, so AddDevice
+// refuses rather than saving a device that would vanish on the next load.
 func AddDevice(path string, cfg *Config, d Device) error {
 	for _, existing := range cfg.Devices {
 		if existing.Name == d.Name {
 			return fmt.Errorf("device %q already exists", d.Name)
 		}
 	}
+	local := cfg.Devices
+	if cfg.shared != nil {
+		if cfg.shared.mode == RegistryReplace {
+			return fmt.Errorf("the shared registry %s replaces local devices (registry_mode = %q); add %q to the registry instead", cfg.shared.path, RegistryReplace, d.Name)
+		}
+		local = cfg.shared.local
+		d.Origin = OriginLocal
+	}
 	staged := &Config{
-		Devices:                append(append([]Device(nil), cfg.Devices...), d),
+		Devices:                append(append([]Device(nil), local...), d),
 		RefreshIntervalSeconds: cfg.RefreshIntervalSeconds,
 		Webhooks:               cfg.Webhooks,
+		Registry:               cfg.Registry,
+		RegistryMode:           cfg.RegistryMode,
 	}
 	if err := Save(path, staged); err != nil {
 		return err
+	}
+	if cfg.shared != nil {
+		cfg.shared.local = staged.Devices
+		cfg.Devices = append(append([]Device(nil), cfg.Devices...), d)
+		return nil
 	}
 	cfg.Devices = staged.Devices
 	return nil
@@ -343,6 +404,12 @@ func writeStarter(path string) error {
 # Discord and Slack incoming webhook URLs are detected automatically; any
 # other URL gets a generic JSON body (e.g. for a custom IRC bridge).
 # webhooks = ["https://discord.com/api/webhooks/...", "https://hooks.slack.com/services/..."]
+
+# Uncomment to share one device list with your team (read-only; see the
+# README's "Shared device registry" section). Local [[device]] entries below
+# are merged in and override shared ones with the same name.
+# registry = "/mnt/team-share/lazydeck/devices.toml"
+# registry_mode = "merge"   # or "replace": use only the shared registry
 
 # [[device]]
 # name = "steam-machine"

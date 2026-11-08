@@ -192,6 +192,10 @@ func NewWithUserConfig(cli *client.Client, cfg *config.Config, path string, user
 			customCmds = append(customCmds, command)
 		}
 	}
+	var startupLog []string
+	if info, ok := cfg.SharedRegistry(); ok {
+		startupLog = append(startupLog, info.Summary())
+	}
 	return Model{
 		cli:             cli,
 		devices:         devices,
@@ -204,6 +208,7 @@ func NewWithUserConfig(cli *client.Client, cfg *config.Config, path string, user
 		refreshInterval: interval,
 		customCmds:      customCmds,
 		customCmdIndex:  customCmdIndex,
+		log:             startupLog,
 	}
 }
 
