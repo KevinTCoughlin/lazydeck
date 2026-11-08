@@ -29,7 +29,8 @@ the Nix-provided `uv`, OpenSSH, and rsync executables.
 - `internal/tui/` — the Bubble Tea TUI (all keybindings/state live here).
 - `internal/client/` — shells out to `python/cli.py` via `uv run` and
   parses its JSON envelope.
-- `internal/config/` — loads/saves `~/.config/lazydeck/devices.toml`.
+- `internal/config/` — loads/saves `~/.config/lazydeck/devices.toml` and
+  merges an optional read-only shared registry (`registry.go`).
 - `python/cli.py` — headless CLI wrapper around the vendored
   `devkit_client` library.
 - `python/vendor/devkit_client/` — Valve/Collabora's MIT-licensed

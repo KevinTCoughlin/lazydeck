@@ -92,9 +92,14 @@ func joinScopes(scopes []Scope) string {
 // Key is one stored API key. It never holds the key itself, only its
 // SHA-256 digest.
 type Key struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Scopes    []Scope    `json:"scopes"`
+	ID     string  `json:"id"`
+	Name   string  `json:"name"`
+	Scopes []Scope `json:"scopes"`
+	// Devices, when non-empty, limits the key to these device names
+	// (issue #48): device routes for any other device return 403, and
+	// GET /v1/devices lists only these. Empty means every device, which
+	// is what every key created before device scoping existed has.
+	Devices   []string   `json:"devices,omitempty"`
 	SHA256    string     `json:"sha256"`
 	CreatedAt time.Time  `json:"created_at"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
@@ -103,6 +108,43 @@ type Key struct {
 
 // HasScope reports whether k grants scope.
 func (k Key) HasScope(scope Scope) bool { return slices.Contains(k.Scopes, scope) }
+
+// AllowsDevice reports whether k may act on the device named name.
+func (k Key) AllowsDevice(name string) bool {
+	return len(k.Devices) == 0 || slices.Contains(k.Devices, name)
+}
+
+// DeviceList renders k's device restriction, or "all".
+func (k Key) DeviceList() string {
+	if len(k.Devices) == 0 {
+		return "all"
+	}
+	return strings.Join(k.Devices, ",")
+}
+
+// ParseDevices parses a comma-separated device name list for
+// `api-key create --devices`. Empty input means no restriction (nil).
+// Names aren't checked against the registry: it may change after the key
+// is created, and a key naming a device that doesn't exist simply can't
+// reach it.
+func ParseDevices(csv string) ([]string, error) {
+	var out []string
+	for _, part := range strings.Split(csv, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			continue
+		}
+		for _, r := range name {
+			if !unicode.IsPrint(r) {
+				return nil, fmt.Errorf("device name %q must contain only printable characters", name)
+			}
+		}
+		if !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	return out, nil
+}
 
 // ScopeList renders k's scopes comma-separated.
 func (k Key) ScopeList() string { return joinScopes(k.Scopes) }
@@ -179,6 +221,12 @@ func validateName(name string) error {
 // exist: callers must show it to the user once and not persist or log it.
 // ttl <= 0 means the key does not expire.
 func Create(path, name string, scopes []Scope, ttl time.Duration, now time.Time) (token string, key Key, err error) {
+	return CreateForDevices(path, name, scopes, nil, ttl, now)
+}
+
+// CreateForDevices is Create for a key limited to the named devices; nil or
+// empty devices means every device.
+func CreateForDevices(path, name string, scopes []Scope, devices []string, ttl time.Duration, now time.Time) (token string, key Key, err error) {
 	if err := validateName(name); err != nil {
 		return "", Key{}, err
 	}
@@ -203,6 +251,7 @@ func Create(path, name string, scopes []Scope, ttl time.Duration, now time.Time)
 		ID:        id,
 		Name:      name,
 		Scopes:    slices.Clone(scopes),
+		Devices:   slices.Clone(devices),
 		SHA256:    digest(token),
 		CreatedAt: now.UTC(),
 	}
@@ -214,6 +263,21 @@ func Create(path, name string, scopes []Scope, ttl time.Duration, now time.Time)
 		return "", Key{}, err
 	}
 	return token, key, nil
+}
+
+// HasActive reports whether the store at path holds at least one key that
+// is neither revoked nor expired at now. `serve --listen` requires one.
+func HasActive(path string, now time.Time) (bool, error) {
+	keys, err := Load(path)
+	if err != nil {
+		return false, err
+	}
+	for _, k := range keys {
+		if k.State(now) == "active" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Revoke marks the key with id as revoked. The entry stays in the store so

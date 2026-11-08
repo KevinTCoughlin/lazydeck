@@ -199,6 +199,69 @@ notifications (the default). This only covers jobs run through `lazydeck
 serve`'s API, which is what the engine integrations use — interactive TUI
 deploys go around the job manager and aren't notified.
 
+### Shared device registry
+
+A team with a lab of devkits can keep one device list everyone reads,
+instead of each engineer maintaining a copy. The registry is an ordinary
+TOML file of `[[device]]` tables (`name`, `machine`, optional `login`; no
+other keys) kept anywhere readable: a network share, a team git repository
+everyone has checked out, or a path your config management provisions.
+
+```toml
+# /mnt/qa-lab/lazydeck/devices.toml (the shared registry)
+[[device]]
+name = "lab-deck-01"
+machine = "10.20.0.11"
+
+[[device]]
+name = "lab-machine-01"
+machine = "10.20.0.21"
+login = "deck"
+```
+
+Point each engineer's own `devices.toml` at it, as a root-level setting:
+
+```toml
+registry = "/mnt/qa-lab/lazydeck/devices.toml"   # relative paths resolve next to this file
+registry_mode = "merge"                          # default; or "replace"
+
+[[device]]                # still allowed: your desk Deck, or a local override
+name = "lab-deck-01"      # same name as a shared entry, so this one wins
+machine = "10.20.0.99"
+```
+
+or set `LAZYDECK_REGISTRY` (and optionally `LAZYDECK_REGISTRY_MODE`) in the
+environment, or pass `lazydeck serve --registry PATH`. Precedence:
+
+- **Which registry:** `serve --registry`, then `LAZYDECK_REGISTRY`, then
+  `registry` in `devices.toml`.
+- **Which mode:** `LAZYDECK_REGISTRY_MODE`, then `registry_mode`, then
+  `merge`.
+- **`merge`:** shared devices in registry order, then your local-only
+  devices. A local device with the same name as a shared one replaces it
+  entirely (all fields, not field by field).
+- **`replace`:** shared devices only; local `[[device]]` entries are
+  ignored. Use this for a CI host or a team `serve` that should see exactly
+  the registry.
+- Everything else (`refresh_interval_seconds`, `webhooks`) always comes from
+  your local `devices.toml`.
+
+The registry is **read-only to lazydeck**: nothing ever writes to it, so
+there is no locking protocol to trust over NFS or SMB. Change it the way you
+change any shared file, ideally a reviewed commit in the team repo. The TUI's
+add-device wizard (`a`) saves to your local `devices.toml` only, and refuses
+in `replace` mode, where a local entry would be ignored. If you edit the
+registry by hand on a share, write it atomically (save to a temporary file,
+then rename) so nobody reads half a file.
+
+A configured registry that is missing (an unmounted share, a missing
+checkout) or malformed (bad TOML, an unknown key, a device without a `name`
+or `machine`, or a duplicate name) stops lazydeck with an error that names
+the file. It never falls back silently to a partial device list. The TUI's
+activity log and `serve`'s startup banner say which registry and mode are in
+use. `serve` reads the registry once at startup, so restart it after the
+registry changes.
+
 Don't know the Deck's IP yet? Find it via mDNS/Bonjour (works once the Deck
 is on the same Wi-Fi and Developer Mode pairing is enabled):
 
@@ -401,7 +464,7 @@ pair only on a trusted LAN. See [SECURITY.md](SECURITY.md).
 ## Engine integrations
 
 `lazydeck serve` (see [issue #13](https://github.com/kevintcoughlin/lazydeck/issues/13))
-exposes the same devkit operations above through a versioned, loopback-only
+exposes the same devkit operations above through a versioned, loopback
 HTTP+SSE API, so engine editors can drive them without shelling out to
 `lazydeck` or reimplementing the SteamOS Devkit protocol. Browse the
 [rendered API docs](https://lazydeck.dev/api/) or read
@@ -464,8 +527,49 @@ keeps only its SHA-256 digest (`~/.config/lazydeck/api-keys.json`, mode
 `pair`, `deploy`, `logs:sync`, and `jobs:cancel`; a key may cancel only jobs
 it started. Run `lazydeck serve --port 47600` (any free port) so the job can
 find the server without the connection file, then send
-`Authorization: Bearer $LAZYDECK_API_KEY`. `serve` stays loopback-only, so
-the CI runner must be on the same machine.
+`Authorization: Bearer $LAZYDECK_API_KEY`.
+
+Limit a key to particular devices with `--devices`:
+
+```bash
+lazydeck api-key create --name qa-bench-3 --scopes read,deploy --devices lab-deck-01,lab-deck-02
+```
+
+Such a key gets `403 forbidden` on every other device's routes (including
+names that don't exist, so it can't probe the registry), sees only its devices
+in `GET /v1/devices`, and gets `404` for other devices' jobs. Device names
+aren't checked when the key is created, because the registry can change.
+
+#### Sharing `serve` beyond this machine
+
+By default `serve` listens on loopback only, so the CI runner or teammate
+must be on the same machine. To let other machines on a **trusted network**
+(a lab VLAN, or a VPN such as WireGuard or Tailscale) reach one shared
+`serve`, opt in with `--listen`:
+
+```bash
+lazydeck api-key create --name ci-runner --scopes read,deploy,logs:sync
+lazydeck serve --listen 0.0.0.0:47600 --registry /mnt/qa-lab/lazydeck/devices.toml
+```
+
+- `--listen` adds a **second** listener. The loopback listener, its
+  connection file, and the editor integrations are unchanged.
+- The `--listen` listener accepts **API keys only**. The session token, which
+  can do everything, is refused there even if someone has it, so every
+  network request is scoped and attributed in the audit log.
+- `serve` **refuses to start** with `--listen` until the key store holds at
+  least one active (unrevoked, unexpired) key.
+- The host must be an IP address (or empty, as in `:47600`, for every
+  interface), and `serve` prints a warning to stderr when it isn't loopback.
+- **It is plain HTTP.** Keys, build paths, and job output cross the network
+  unencrypted. lazydeck doesn't terminate TLS itself. If you need TLS, keep
+  `serve` on loopback and put a reverse proxy such as Caddy or nginx in front.
+  Point the proxy at a loopback `--listen` address such as
+  `--listen 127.0.0.1:47601` so proxied requests also get the API-key-only
+  listener. Behind a proxy, the audit log's `remote_addr` is the proxy's.
+- The build `directory` in a deploy request is a path **on the machine
+  running `serve`**. Remote CI must put the build somewhere that machine can
+  read, such as a shared volume, before it calls deploy.
 
 `serve` appends one JSON line per mutating request (discover, pair, deploy,
 log sync, cancel), scope denial, rejected API key, and finished job to

@@ -31,6 +31,15 @@ func (p principal) allows(scope apikey.Scope) bool {
 	return p.key.HasScope(scope)
 }
 
+// allowsDevice reports whether p may act on the device named id. The
+// session token reaches every device; an API key may be limited to some.
+func (p principal) allowsDevice(id string) bool {
+	if p.kind == audit.ActorSession {
+		return true
+	}
+	return p.key.AllowsDevice(id)
+}
+
 // jobActor is the identity recorded on jobs this principal submits, used
 // to limit an API key's cancel rights to its own jobs.
 func (p principal) jobActor() string {
@@ -60,13 +69,30 @@ func principalFrom(ctx context.Context) principal {
 // generateToken) or an API key from the key store. Credentials are never
 // accepted from a query parameter, so they cannot leak into shell history,
 // logs, or a browser's URL bar. Both comparisons are constant-time.
-func (s *Server) withAuth(next http.Handler) http.Handler {
+//
+// allowSession is false for the `serve --listen` network listener (issue
+// #48): there the session token is refused even if presented, so the one
+// credential that can do everything never has to cross the network and
+// every network caller is a scoped, attributable API key.
+func (s *Server) withAuth(next http.Handler, allowSession bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		const prefix = "Bearer "
 		auth := r.Header.Get("Authorization")
 		presented, hasBearer := strings.CutPrefix(auth, prefix)
 
 		if hasBearer && subtle.ConstantTimeCompare([]byte(presented), []byte(s.token)) == 1 {
+			if !allowSession {
+				s.recordAudit(audit.Entry{
+					Actor:      audit.ActorAnonymous,
+					Action:     "auth",
+					Result:     audit.ResultUnauthorized,
+					Status:     http.StatusUnauthorized,
+					Reason:     "session token refused on the network listener",
+					RemoteAddr: r.RemoteAddr,
+				})
+				writeError(w, "unauthorized", "the session token is only accepted on the loopback listener; use an API key")
+				return
+			}
 			p := principal{kind: audit.ActorSession, name: s.sessionUser}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
 			return
@@ -116,19 +142,38 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 // change nothing and SSE/polling clients would drown the log. Every scope
 // denial is audited, reads included.
 func (s *Server) route(scope apikey.Scope, action string, mutating bool, h http.HandlerFunc) http.HandlerFunc {
+	return s.routeWith(scope, action, mutating, false, h)
+}
+
+// deviceRoute is route for a /v1/devices/{id}/... route: on top of the
+// scope check, a device-scoped API key (issue #48) may only reach the
+// devices it names. The check runs before the device lookup, so such a key
+// gets 403 for every other name and can't probe which devices exist.
+func (s *Server) deviceRoute(scope apikey.Scope, action string, mutating bool, h http.HandlerFunc) http.HandlerFunc {
+	return s.routeWith(scope, action, mutating, true, h)
+}
+
+func (s *Server) routeWith(scope apikey.Scope, action string, mutating, perDevice bool, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p := principalFrom(r.Context())
-		if scope != "" && !p.allows(scope) {
+		deny := func(reason, message string) {
 			e := p.auditEntry()
 			e.Action = action
 			e.Device = r.PathValue("id")
 			e.Result = audit.ResultDenied
 			e.Status = http.StatusForbidden
 			e.ErrorKind = "forbidden"
-			e.Reason = fmt.Sprintf("missing scope %q", scope)
+			e.Reason = reason
 			e.RemoteAddr = r.RemoteAddr
 			s.recordAudit(e)
-			writeError(w, "forbidden", fmt.Sprintf("this credential lacks the %q scope", scope))
+			writeError(w, "forbidden", message)
+		}
+		if scope != "" && !p.allows(scope) {
+			deny(fmt.Sprintf("missing scope %q", scope), fmt.Sprintf("this credential lacks the %q scope", scope))
+			return
+		}
+		if perDevice && !p.allowsDevice(r.PathValue("id")) {
+			deny("key is limited to other devices", "this API key is not allowed to use this device")
 			return
 		}
 		if !mutating {

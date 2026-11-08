@@ -57,3 +57,28 @@ func TestAPIKeyCreateRejectsUnknownScope(t *testing.T) {
 		t.Fatalf("err = %v, stdout = %q; want an error and no key", err, out.String())
 	}
 }
+
+func TestAPIKeyCreateWithDevices(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "api-keys.json")
+	now := time.Now()
+	var out, errOut bytes.Buffer
+	if err := runAPIKey([]string{"create", "--name", "qa", "--scopes", "read,deploy", "--devices", "lab-deck-1, lab-deck-2,lab-deck-1"}, path, &out, &errOut, now); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if !strings.Contains(errOut.String(), "limited to devices lab-deck-1,lab-deck-2") {
+		t.Fatalf("stderr = %q", errOut.String())
+	}
+	out.Reset()
+	if err := runAPIKey([]string{"create", "--name", "ci", "--scopes", "read"}, path, &out, &errOut, now); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := runAPIKey([]string{"list"}, path, &out, &errOut, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"DEVICES", "lab-deck-1,lab-deck-2", "all"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("list output missing %q:\n%s", want, out.String())
+		}
+	}
+}

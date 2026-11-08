@@ -1,5 +1,5 @@
 // Package server implements the versioned local service API from issue
-// #13: a loopback-only, bearer-token-authenticated HTTP+SSE surface over
+// #13: a loopback, bearer-token-authenticated HTTP+SSE surface over
 // lazydeck's existing devkit operations (internal/client), so engine
 // integrations (the Godot plugin in #14, later a Unity package) consume one
 // stable contract instead of importing Go packages, invoking the Python
@@ -11,6 +11,10 @@
 // handleLaunch/handleStop — because python/cli.py has no launch/stop
 // primitive to call; capabilities reports them as unsupported rather than
 // guessing at a shape before a real backend exists.
+//
+// `serve --listen` (issue #48) adds an opt-in second listener for other
+// machines on a trusted network. It accepts API keys only and refuses to
+// start unless one exists; see checkListen and Options.Listen.
 package server
 
 import (
@@ -22,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"strconv"
 	"sync"
 	"time"
 
@@ -160,27 +165,34 @@ func notifyJobComplete(fanout notify.Fanout, snap jobs.Snapshot) {
 // Handler returns the full HTTP handler: routing plus the bearer-auth
 // middleware, which wraps every route (including /v1/health) so a client
 // can rely on "any non-401 response means it authenticated" uniformly.
-func (s *Server) Handler() http.Handler {
+func (s *Server) Handler() http.Handler { return s.handler(true) }
+
+// NetworkHandler is Handler for the `serve --listen` listener: the same
+// routes, but API keys only (see withAuth).
+func (s *Server) NetworkHandler() http.Handler { return s.handler(false) }
+
+func (s *Server) handler(allowSession bool) http.Handler {
 	mux := http.NewServeMux()
 
 	// Each route names the API key scope it needs (the session token has
-	// them all) and an audit action; mutating routes are audited.
+	// them all) and an audit action; mutating routes are audited. Device
+	// routes also honor a key's device restriction.
 	mux.HandleFunc("GET /v1/health", s.route("", "health", false, s.handleHealth))
 	mux.HandleFunc("GET /v1/capabilities", s.route(apikey.ScopeRead, "capabilities", false, s.handleCapabilities))
 	mux.HandleFunc("GET /v1/devices", s.route(apikey.ScopeRead, "devices.list", false, s.handleListDevices))
 	mux.HandleFunc("POST /v1/devices/discover", s.route(apikey.ScopeDiscover, "devices.discover", true, s.handleDiscover))
-	mux.HandleFunc("POST /v1/devices/{id}/pair", s.route(apikey.ScopePair, "devices.pair", true, s.handlePair))
-	mux.HandleFunc("GET /v1/devices/{id}/status", s.route(apikey.ScopeRead, "devices.status", false, s.handleStatus))
-	mux.HandleFunc("GET /v1/devices/{id}/games", s.route(apikey.ScopeRead, "games.list", false, s.handleGames))
-	mux.HandleFunc("POST /v1/devices/{id}/deployments", s.route(apikey.ScopeDeploy, "deploy", true, s.handleDeploy))
-	mux.HandleFunc("POST /v1/devices/{id}/logs/sync", s.route(apikey.ScopeLogsSync, "logs.sync", true, s.handleLogsSync))
-	mux.HandleFunc("POST /v1/devices/{id}/games/{gameID}/launch", s.route(apikey.ScopeDeploy, "games.launch", true, s.handleLaunch))
-	mux.HandleFunc("POST /v1/devices/{id}/games/{gameID}/stop", s.route(apikey.ScopeDeploy, "games.stop", true, s.handleStop))
+	mux.HandleFunc("POST /v1/devices/{id}/pair", s.deviceRoute(apikey.ScopePair, "devices.pair", true, s.handlePair))
+	mux.HandleFunc("GET /v1/devices/{id}/status", s.deviceRoute(apikey.ScopeRead, "devices.status", false, s.handleStatus))
+	mux.HandleFunc("GET /v1/devices/{id}/games", s.deviceRoute(apikey.ScopeRead, "games.list", false, s.handleGames))
+	mux.HandleFunc("POST /v1/devices/{id}/deployments", s.deviceRoute(apikey.ScopeDeploy, "deploy", true, s.handleDeploy))
+	mux.HandleFunc("POST /v1/devices/{id}/logs/sync", s.deviceRoute(apikey.ScopeLogsSync, "logs.sync", true, s.handleLogsSync))
+	mux.HandleFunc("POST /v1/devices/{id}/games/{gameID}/launch", s.deviceRoute(apikey.ScopeDeploy, "games.launch", true, s.handleLaunch))
+	mux.HandleFunc("POST /v1/devices/{id}/games/{gameID}/stop", s.deviceRoute(apikey.ScopeDeploy, "games.stop", true, s.handleStop))
 	mux.HandleFunc("GET /v1/jobs/{id}", s.route(apikey.ScopeRead, "jobs.get", false, s.handleGetJob))
 	mux.HandleFunc("GET /v1/jobs/{id}/events", s.route(apikey.ScopeRead, "jobs.events", false, s.handleJobEvents))
 	mux.HandleFunc("DELETE /v1/jobs/{id}", s.route(apikey.ScopeJobsCancel, "jobs.cancel", true, s.handleCancelJob))
 
-	return s.withAuth(jsonNotFoundHandler(mux))
+	return s.withAuth(jsonNotFoundHandler(mux), allowSession)
 }
 
 // jsonNotFoundHandler wraps next so an unmatched route or disallowed
@@ -270,6 +282,60 @@ type Options struct {
 	APIKeysPath string
 	// AuditLogPath is the append-only audit log (see internal/audit).
 	AuditLogPath string
+	// Listen, when set, adds a second listener at this HOST:PORT that
+	// accepts API keys only (issue #48), e.g. "0.0.0.0:47600" so CI
+	// runners and teammates on a trusted network can reach this serve.
+	// The loopback listener (Port) and its connection file are unchanged.
+	// Run refuses to start it unless the key store has an active key.
+	Listen string
+}
+
+// checkListen validates a --listen address and the auth it requires,
+// before anything is bound. It reports whether addr is a loopback address
+// (e.g. for a TLS reverse proxy on the same host), which needs no warning.
+func checkListen(addr, keysPath string, now time.Time) (loopback bool, err error) {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false, fmt.Errorf("--listen %q: want HOST:PORT, e.g. 0.0.0.0:47600 or 192.168.10.5:47600", addr)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return false, fmt.Errorf("--listen %q: port must be between 1 and 65535", addr)
+	}
+	if host != "" {
+		ip := net.ParseIP(host)
+		if ip == nil {
+			return false, fmt.Errorf("--listen %q: host must be an IP address (or empty for every interface), not a hostname", addr)
+		}
+		loopback = ip.IsLoopback()
+	}
+	if keysPath == "" {
+		return false, errors.New("refusing to start --listen: API keys are disabled, and the network listener accepts nothing else")
+	}
+	ok, err := apikey.HasActive(keysPath, now)
+	if err != nil {
+		return false, fmt.Errorf("refusing to start --listen: %w", err)
+	}
+	if !ok {
+		return false, fmt.Errorf("refusing to start --listen: %s has no active API key, and the network listener accepts only API keys. Create one first, e.g. `lazydeck api-key create --name ci --scopes read,deploy`", keysPath)
+	}
+	return loopback, nil
+}
+
+// listenWarning is printed to stderr whenever --listen binds beyond
+// loopback. It is deliberately loud: this is the one way to expose devkit
+// deploys to other machines.
+func listenWarning(addr string) string {
+	return fmt.Sprintf(`lazydeck serve: WARNING: --listen %s accepts connections from other machines.
+  - It speaks plain HTTP. API keys, build paths and job output cross the network
+    unencrypted. Use it only on a trusted network (a lab VLAN or a VPN). For TLS,
+    leave --listen off and put a reverse proxy in front of the loopback port, or
+    point the proxy at a loopback --listen address.
+  - It accepts API keys only, never the session token. Anyone holding a key can do
+    what its scopes allow, on every device it isn't limited from (--devices).
+  - Every request is attributed in the audit log; review keys with
+    lazydeck api-key list and revoke unused ones.
+`, addr)
 }
 
 // currentUsername names the OS user behind the session token in audit
@@ -290,6 +356,15 @@ func currentUsername() string {
 func Run(ctx context.Context, cli devkitClient, cfg *config.Config, opts Options) error {
 	if opts.Port < 0 || opts.Port > 65535 {
 		return fmt.Errorf("--port must be between 0 and 65535, got %d", opts.Port)
+	}
+	// Check --listen's auth requirement before opening or binding
+	// anything, so a refusal leaves no connection file or socket behind.
+	listenLoopback := false
+	if opts.Listen != "" {
+		var err error
+		if listenLoopback, err = checkListen(opts.Listen, opts.APIKeysPath, time.Now()); err != nil {
+			return err
+		}
 	}
 	// Open the audit log before binding anything: serving mutations with
 	// no audit trail is worse than not starting (issue #49).
@@ -327,6 +402,21 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config, opts Options
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 
+	var netListener net.Listener
+	if opts.Listen != "" {
+		netListener, err = net.Listen("tcp", opts.Listen)
+		if err != nil {
+			_ = listener.Close()
+			return fmt.Errorf("binding --listen %s: %w", opts.Listen, err)
+		}
+	}
+	closeListeners := func() {
+		_ = listener.Close()
+		if netListener != nil {
+			_ = netListener.Close()
+		}
+	}
+
 	info := ConnectionInfo{
 		PID:        os.Getpid(),
 		Port:       port,
@@ -335,7 +425,7 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config, opts Options
 		APIVersion: APIVersion,
 	}
 	if err := writeConnectionInfo(connFile, info); err != nil {
-		_ = listener.Close()
+		closeListeners()
 		return err
 	}
 
@@ -344,10 +434,16 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config, opts Options
 	// terminal multiplexer's history, or a captured log of this process's
 	// stdout.
 	fmt.Printf("lazydeck serve: listening on %s (connection file: %s, audit log: %s)\n", info.BaseURL, connPath, opts.AuditLogPath)
+	if netListener != nil {
+		fmt.Printf("lazydeck serve: also listening on %s for API keys only\n", opts.Listen)
+		if !listenLoopback {
+			fmt.Fprint(os.Stderr, listenWarning(opts.Listen))
+		}
+	}
 
 	apiServer, err := New(cli, cfg, token)
 	if err != nil {
-		_ = listener.Close()
+		closeListeners()
 		return err
 	}
 	apiServer.audit = auditLog
@@ -355,16 +451,27 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config, opts Options
 	if opts.APIKeysPath != "" {
 		apiServer.keys = apikey.NewStore(opts.APIKeysPath)
 	}
-	srv := &http.Server{
+	loopbackSrv := &http.Server{
 		Handler:           apiServer.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-
-	serveErr := make(chan error, 1)
-	go func() { serveErr <- srv.Serve(listener) }()
+	servers := []*http.Server{loopbackSrv}
+	serveErr := make(chan error, 2)
+	go func() { serveErr <- loopbackSrv.Serve(listener) }()
+	if netListener != nil {
+		netSrv := &http.Server{
+			Handler:           apiServer.NetworkHandler(),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		servers = append(servers, netSrv)
+		go func() { serveErr <- netSrv.Serve(netListener) }()
+	}
 
 	select {
 	case err := <-serveErr:
+		for _, srv := range servers {
+			_ = srv.Close()
+		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
@@ -372,8 +479,10 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config, opts Options
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownBudget)
 		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("lazydeck serve: graceful HTTP shutdown failed: %v", err)
+		for _, srv := range servers {
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				log.Printf("lazydeck serve: graceful HTTP shutdown failed: %v", err)
+			}
 		}
 		// Cancel and wait for in-flight jobs even if HTTP shutdown above
 		// didn't finish cleanly: otherwise a deploy's rsync/ssh could keep

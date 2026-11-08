@@ -7,6 +7,8 @@ lazydeck \- terminal UI and local API for Steam devkits
 .B lazydeck serve
 .RI [ --fixture ]
 .RI [ "--port N" ]
+.RI [ "--listen HOST:PORT" ]
+.RI [ "--registry PATH" ]
 .br
 .B lazydeck api-key
 .IR create | list | revoke
@@ -40,23 +42,46 @@ on Linux.
 Start the API using an in-memory backend. This is intended for integration
 tests and does not connect to a Steam device.
 .TP
-.B lazydeck serve --port INR
+.B lazydeck serve --port \fIN\fR
 Bind loopback port
 .I N
 instead of an ephemeral port, so a CI job that cannot read the connection
 file can still reach the server with an API key.
 .TP
-.B lazydeck api-key create --name INAMER R[B--scopesR Iread,deployR] [B--expires-inR I2160hR]
+.B lazydeck serve --listen \fIHOST:PORT\fR
+Also listen on
+.I HOST:PORT
+(an IP address, or empty for every interface, as in
+.BR 0.0.0.0:47600 )
+so other machines on a trusted network can connect. This listener speaks plain
+HTTP and accepts API keys only, never the session token.
+.B serve
+refuses to start it until the key store holds an active key, and prints a
+warning whenever the address is not loopback. For TLS, put a reverse proxy in
+front instead.
+.TP
+.B lazydeck serve --registry \fIPATH\fR
+Load the shared device registry at
+.IR PATH ,
+overriding
+.B LAZYDECK_REGISTRY
+and the
+.B registry
+key in devices.toml.
+.TP
+.B lazydeck api-key create --name \fINAME\fR \fR[\fB--scopes\fR \fIread,deploy\fR] [\fB--expires-in\fR \fI2160h\fR] [\fB--devices\fR \fIa,b\fR]
 Create a long-lived, scoped API key for
 .BR "lazydeck serve" ,
 printed once on standard output. Only its SHA-256 digest is stored, in
 .IR ~/.config/lazydeck/api-keys.json .
 Scopes: read, discover, pair, deploy, logs:sync, jobs:cancel.
+.B --devices
+limits the key to the named devices.
 .TP
 .B lazydeck api-key list
 List API key ids, names, scopes, and states. Never prints keys.
 .TP
-.B lazydeck api-key revoke IIDR
+.B lazydeck api-key revoke \fIID\fR
 Revoke a key. A running server rejects it from the next request.
 .TP
 .B lazydeck mcp
@@ -106,6 +131,19 @@ Append-only JSON-lines audit log of mutating API requests, scope denials,
 rejected API keys, and job outcomes. Defaults to
 .IR ~/.local/state/lazydeck/audit.log .
 .SH ENVIRONMENT
+.TP
+.B LAZYDECK_REGISTRY
+A shared, read-only device registry: a file of
+.B [[device]]
+tables, for example on a network share or in a git checkout. Overrides the
+.B registry
+key in devices.toml.
+.TP
+.B LAZYDECK_REGISTRY_MODE
+.B merge
+(the default: local devices override shared ones of the same name) or
+.B replace
+(shared devices only).
 .TP
 .B LAZYDECK_AUDIT_LOG
 Override the audit log path.
