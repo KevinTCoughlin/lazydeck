@@ -11,6 +11,14 @@ the last release are collected in the open `chore(main): release …` pull
 request rather than an Unreleased section here. Earlier entries follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0](https://github.com/KevinTCoughlin/lazydeck/compare/v0.3.0...v0.4.0) (2026-11-08)
+
+
+### Added
+
+* add a shared device registry and opt-in serve --listen ([#105](https://github.com/KevinTCoughlin/lazydeck/issues/105)) ([adc760a](https://github.com/KevinTCoughlin/lazydeck/commit/adc760ac07b9aff13a09b6de57da559de350573c))
+* **serve:** add scoped API keys and an append-only audit log ([#103](https://github.com/KevinTCoughlin/lazydeck/issues/103)) ([8097a60](https://github.com/KevinTCoughlin/lazydeck/commit/8097a6019ab5f6a2d9ffe0d9b9fc9dcb7366d766))
+
 ## [0.3.0](https://github.com/KevinTCoughlin/lazydeck/compare/v0.2.2...v0.3.0) (2026-11-06)
 
 
