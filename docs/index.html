@@ -4,17 +4,59 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>lazydeck: a lazydocker-style TUI for your Steam devkit fleet</title>
-<meta name="description" content="lazydeck is a keyboard-driven terminal UI for managing a fleet of Steam devkits (Steam Deck, Steam Machine): pairing, deploying builds, checking status, and tailing logs from one panel.">
+<meta name="description" content="Keyboard-driven terminal UI for a fleet of Steam devkits (Steam Deck, Steam Machine): pair, deploy builds, check status and sync logs from one panel.">
 <link rel="canonical" href="https://lazydeck.dev/">
+<meta name="author" content="Kevin Coughlin">
+<meta name="theme-color" content="#0d0d0d">
+<meta name="color-scheme" content="dark">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="lazydeck">
 <meta property="og:url" content="https://lazydeck.dev/">
 <meta property="og:title" content="lazydeck: a lazydocker-style TUI for your Steam devkit fleet">
-<meta property="og:description" content="A keyboard-driven terminal UI for managing a fleet of Steam devkits: pairing, deploying builds, checking status, and tailing logs from one panel.">
-<meta property="og:image" content="https://lazydeck.dev/assets/lazydeck-tui.png">
+<meta property="og:description" content="A keyboard-driven terminal UI for managing a fleet of Steam devkits: pairing, deploying builds, checking status, and syncing logs from one panel.">
+<meta property="og:image" content="https://lazydeck.dev/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="lazydeck: a terminal UI for your Steam devkit fleet, next to the device, detail and activity panels">
+<meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="lazydeck: a lazydocker-style TUI for your Steam devkit fleet">
-<meta name="twitter:description" content="A keyboard-driven terminal UI for managing a fleet of Steam devkits: pairing, deploying builds, checking status, and tailing logs from one panel.">
-<meta name="twitter:image" content="https://lazydeck.dev/assets/lazydeck-tui.png">
+<meta name="twitter:description" content="A keyboard-driven terminal UI for managing a fleet of Steam devkits: pairing, deploying builds, checking status, and syncing logs from one panel.">
+<meta name="twitter:image" content="https://lazydeck.dev/assets/og-image.png">
+<meta name="twitter:image:alt" content="lazydeck: a terminal UI for your Steam devkit fleet">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://lazydeck.dev/#app",
+      "name": "lazydeck",
+      "description": "A lazydocker-style terminal UI and local HTTP API for managing a fleet of Steam devkits: pairing, deploying builds, checking status, listing games and syncing logs, with Godot, Unity and Unreal editor plugins and an MCP server.",
+      "url": "https://lazydeck.dev/",
+      "image": "https://lazydeck.dev/assets/og-image.png",
+      "screenshot": "https://lazydeck.dev/assets/lazydeck-tui.png",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "macOS, Linux",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "downloadUrl": "https://github.com/KevinTCoughlin/lazydeck/releases/latest",
+      "installUrl": "https://github.com/KevinTCoughlin/lazydeck#installing-a-pre-built-release",
+      "codeRepository": "https://github.com/KevinTCoughlin/lazydeck",
+      "programmingLanguage": ["Go", "Python"],
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@type": "Person", "name": "Kevin Coughlin", "url": "https://kevintcoughlin.com/" }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://lazydeck.dev/#website",
+      "name": "lazydeck",
+      "url": "https://lazydeck.dev/",
+      "about": { "@id": "https://lazydeck.dev/#app" }
+    }
+  ]
+}
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d0d0d'/%3E%3Ctext x='32' y='43' font-family='monospace' font-size='30' font-weight='bold' fill='%23ff6600' text-anchor='middle'%3E%3E_%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -135,7 +177,7 @@
   .screenshot-titlebar span:nth-child(1) { background: #ff5f57; }
   .screenshot-titlebar span:nth-child(2) { background: #febc2e; }
   .screenshot-titlebar span:nth-child(3) { background: #28c840; }
-  .screenshot-wrap img { width: 100%; display: block; }
+  .screenshot-wrap img { width: 100%; height: auto; display: block; }
   .screenshot-caption {
     text-align: center;
     color: var(--dim);
@@ -279,7 +321,7 @@
   </div>
   <div class="feature">
     <h3>Engine integrations</h3>
-    <p>Godot 4 and Unity editor plugins (dock UI, export, deploy, log sync) ship today, plus an Unreal plugin in progress. All talk to <code>lazydeck serve</code> directly.</p>
+    <p>Godot 4 and Unity editor plugins (dock UI, export, deploy, log sync) ship today, plus an Unreal plugin that has not yet been built against a real engine. All talk to <code>lazydeck serve</code> directly.</p>
   </div>
   <div class="feature">
     <h3>MCP server, if you want it</h3>
@@ -309,7 +351,7 @@
     <span class="badge">macOS · amd64/arm64</span>
     <span class="badge">Linux · amd64/arm64</span>
     <span class="badge">Homebrew tap</span>
-    <span class="badge">Debian package</span>
+    <span class="badge">Debian &amp; RPM packages</span>
     <span class="badge">Nix flake</span>
     <span class="badge">Container image</span>
   </div>
@@ -377,7 +419,7 @@ sha256sum --ignore-missing -c checksums.txt</code></pre>
   <div class="badge-row">
     <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/tree/main/integrations/godot">Godot 4 plugin</a>
     <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/tree/main/integrations/unity">Unity package</a>
-    <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/tree/main/integrations/unreal">Unreal plugin (in progress)</a>
+    <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/tree/main/integrations/unreal">Unreal plugin (unvalidated)</a>
     <a class="badge" href="https://github.com/KevinTCoughlin/lazydeck/blob/main/docs/mcp.md">MCP server (lazydeck mcp)</a>
   </div>
 </section>
@@ -412,13 +454,18 @@ sha256sum --ignore-missing -c checksums.txt</code></pre>
     <tr><th>Key</th><th>Action</th></tr>
     <tr><td class="mono">↑/k · ↓/j</td><td>move the cursor</td></tr>
     <tr><td class="mono">space</td><td>multi-select (batches d/l/x)</td></tr>
+    <tr><td class="mono">/</td><td>fuzzy-filter devices by name or machine</td></tr>
     <tr><td class="mono">s</td><td>refresh status for all devices</td></tr>
+    <tr><td class="mono">r</td><td>register (pair) the selected device</td></tr>
     <tr><td class="mono">d</td><td>deploy a build</td></tr>
     <tr><td class="mono">l</td><td>sync logs down</td></tr>
+    <tr><td class="mono">x</td><td>delete a deployed title (asks to confirm)</td></tr>
     <tr><td class="mono">g</td><td>list installed games</td></tr>
+    <tr><td class="mono">f</td><td>find devkits on the LAN (mDNS)</td></tr>
     <tr><td class="mono">a</td><td>add-device wizard (discover + pair)</td></tr>
     <tr><td class="mono">enter</td><td>open an interactive SSH shell</td></tr>
     <tr><td class="mono">?</td><td>full help screen</td></tr>
+    <tr><td class="mono">q</td><td>quit</td></tr>
   </table>
 </section>
 
