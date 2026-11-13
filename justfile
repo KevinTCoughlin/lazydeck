@@ -23,10 +23,11 @@ build:
 run: build
     {{bin}}
 
-# Re-record docs/assets/demo.gif against the canned backend in scripts/demo/
-# (needs vhs; no devkits or network involved).
+# Re-record the docs/assets/demo.{webm,mp4,gif} against the canned backend in
+# scripts/demo/ (needs vhs and ffmpeg; no devkits or network involved).
 demo:
     vhs scripts/demo/demo.tape
+    scripts/demo/gif.sh
 
 # Run the Go unit tests.
 test:

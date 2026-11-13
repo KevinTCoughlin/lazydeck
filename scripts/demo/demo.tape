@@ -1,16 +1,21 @@
 # SPDX-License-Identifier: MIT
-# Records docs/assets/demo.gif against a fake backend (no hardware, no network):
-#   vhs scripts/demo/demo.tape
+# Records the landing-page demo against a fake backend (no hardware, no network):
+#   just demo   (vhs scripts/demo/demo.tape, then scripts/demo/gif.sh)
 # Run from the repository root.
+#
+# Recorded at 2x (2400x1280, 30px font) so it stays sharp on HiDPI screens.
+# The site plays the WebM/MP4; scripts/demo/gif.sh downsamples the MP4 into
+# docs/assets/demo.gif for the README, where video tags aren't rendered.
 
-Output docs/assets/demo.gif
+Output docs/assets/demo.webm
+Output docs/assets/demo.mp4
 Require go
 
 Set Shell "bash"
-Set FontSize 15
-Set Width 1200
-Set Height 640
-Set Padding 16
+Set FontSize 30
+Set Width 2400
+Set Height 1280
+Set Padding 32
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 60ms
 
@@ -19,7 +24,8 @@ Type `export DEMO=$(mktemp -d) && mkdir -p "$DEMO/lazydeck" && cp scripts/demo/d
 Type `go build -o "$DEMO/lazydeck-bin" ./cmd/lazydeck` Enter
 Type `export XDG_CONFIG_HOME="$DEMO" LAZYDECK_UV="$PWD/scripts/demo/fake-uv" LAZYDECK_PYTHON_DIR="$PWD/python"` Enter
 Type `alias lazydeck="$DEMO/lazydeck-bin" && clear` Enter
-Sleep 4s
+# Run `go mod download` first on a cold module cache so the build fits here.
+Sleep 8s
 Show
 
 Type "lazydeck" Sleep 400ms Enter
@@ -37,7 +43,8 @@ Type "d" Sleep 700ms
 Type "HollowGrove" Sleep 300ms Enter
 Sleep 600ms
 Type "./build/linux" Sleep 300ms Enter
-Sleep 4s
+# Run `go mod download` first on a cold module cache so the build fits here.
+Sleep 8s
 
 # Help overlay, then quit.
 Type "?" Sleep 2.5s
