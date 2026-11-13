@@ -58,6 +58,15 @@
 }
 </script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d0d0d'/%3E%3Ctext x='32' y='43' font-family='monospace' font-size='30' font-weight='bold' fill='%23ff6600' text-anchor='middle'%3E%3E_%3C/text%3E%3C/svg%3E">
+<script>
+  (function () {
+    var q = new URLSearchParams(location.search).get("holiday");
+    var d = new Date(), m = d.getMonth(), day = d.getDate();
+    var inSeason = (m === 10 && day >= 20) || m === 11 || (m === 0 && day === 1);
+    if (q === "1" || (q !== "0" && inSeason)) document.documentElement.classList.add("holiday");
+  })();
+</script>
+<link rel="preload" as="image" href="assets/demo-poster.png" fetchpriority="high">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -97,7 +106,7 @@
   header.hero {
     max-width: 980px;
     margin: 0 auto;
-    padding: 88px 24px 36px;
+    padding: 48px 24px 24px;
     text-align: center;
   }
   .eyebrow {
@@ -113,7 +122,7 @@
     border: 1px solid rgba(255,102,0,0.35);
     padding: 5px 14px;
     border-radius: 999px;
-    margin-bottom: 22px;
+    margin-bottom: 18px;
   }
   .eyebrow .dot {
     width: 6px;
@@ -125,7 +134,7 @@
   header.hero h1 {
     font-size: clamp(2.2rem, 5vw, 3.1rem);
     font-weight: 800;
-    margin: 0 0 16px;
+    margin: 0 0 10px;
     letter-spacing: -0.03em;
   }
   header.hero h1 .mono { color: var(--accent); }
@@ -133,9 +142,9 @@
     font-size: 1.15rem;
     color: var(--dim);
     max-width: 640px;
-    margin: 0 auto 32px;
+    margin: 0 auto 24px;
   }
-  .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 52px; }
+  .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
   .btn {
     display: inline-block;
     padding: 11px 22px;
@@ -150,7 +159,7 @@
   .btn.secondary { border: 1px solid var(--border); color: var(--text); background: rgba(255,255,255,0.02); }
   .btn.secondary:hover { border-color: var(--accent); box-shadow: 0 8px 20px rgba(0,0,0,0.35); }
 
-  .screenshot-wrap { max-width: 980px; margin: 0 auto; padding: 0 24px 64px; }
+  .screenshot-wrap { max-width: 1040px; margin: 0 auto; padding: 8px 24px 56px; }
   .screenshot-frame {
     border-radius: 14px;
     border: 1px solid var(--border);
@@ -177,13 +186,22 @@
   .screenshot-titlebar span:nth-child(1) { background: #ff5f57; }
   .screenshot-titlebar span:nth-child(2) { background: #febc2e; }
   .screenshot-titlebar span:nth-child(3) { background: #28c840; }
-  .screenshot-wrap img { width: 100%; height: auto; display: block; }
+  .screenshot-wrap video, .screenshot-wrap img { width: 100%; height: auto; display: block; aspect-ratio: 15 / 8; background: #1e1e2e; }
   .screenshot-caption {
     text-align: center;
     color: var(--dim);
     font-size: 0.85rem;
     margin-top: 16px;
   }
+  .intro {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 24px 56px;
+    text-align: center;
+    color: var(--dim);
+    font-size: 1.05rem;
+  }
+  .intro strong { color: var(--text); font-weight: 600; }
 
   section.features {
     max-width: 980px;
@@ -265,22 +283,138 @@
   footer a { color: var(--dim); }
   footer a:hover { color: var(--accent); }
 
+  /* ---------- Holiday season (Nov 20 – Jan 1), toggled by html.holiday ---------- */
+  .holiday-only { display: none; }
+  html.holiday .holiday-only { display: revert; }
+  html.holiday body {
+    --xmas-red: #e5484d;
+    --xmas-green: #3fb950;
+    background:
+      radial-gradient(40% 30% at 10% 0%, rgba(229,72,77,0.13) 0%, transparent 60%),
+      radial-gradient(40% 30% at 90% 0%, rgba(63,185,80,0.10) 0%, transparent 60%),
+      radial-gradient(120% 120% at 50% -10%, #271b0f 0%, var(--bg) 55%);
+  }
+  html.holiday .eyebrow {
+    color: #ffd7c2;
+    border-color: rgba(229,72,77,0.45);
+    background: linear-gradient(90deg, rgba(229,72,77,0.16), rgba(63,185,80,0.14));
+  }
+  html.holiday .eyebrow .dot { animation: blink-xmas 1.6s steps(1) infinite; }
+  @keyframes blink-xmas {
+    0%   { background: var(--xmas-red);   box-shadow: 0 0 8px var(--xmas-red); }
+    50%  { background: var(--xmas-green); box-shadow: 0 0 8px var(--xmas-green); }
+  }
+  /* Santa hat perched on the prompt glyph. */
+  header.hero h1 .prompt { position: relative; display: inline-block; }
+  .santa-hat {
+    position: absolute;
+    left: 50%;
+    top: -0.52em;
+    width: 0.95em;
+    transform: translateX(-46%) rotate(-14deg);
+    pointer-events: none;
+  }
+  /* String of lights draped across the terminal frame. */
+  .lights {
+    position: absolute;
+    left: 0; right: 0; top: -10px;
+    height: 26px;
+    justify-content: space-around;
+    padding: 0 18px;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .lights::before {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    height: 14px;
+    border-bottom: 1.5px solid #3a3a3a;
+    border-radius: 0 0 50% 50% / 0 0 100% 100%;
+  }
+  .lights i {
+    position: relative;
+    top: 8px;
+    width: 9px; height: 14px;
+    border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+    background: var(--c);
+    box-shadow: 0 0 10px 2px var(--c);
+    animation: twinkle 2.4s ease-in-out infinite;
+    animation-delay: calc(var(--i) * -0.37s);
+  }
+  .lights i::before {
+    content: "";
+    position: absolute;
+    top: -4px; left: 2px;
+    width: 5px; height: 5px;
+    border-radius: 1px;
+    background: #4a4a4a;
+  }
+  .lights i:nth-child(4n+1) { --c: #e5484d; }
+  .lights i:nth-child(4n+2) { --c: #3fb950; }
+  .lights i:nth-child(4n+3) { --c: #f2cc60; }
+  .lights i:nth-child(4n+4) { --c: #58a6ff; }
+  @keyframes twinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; box-shadow: 0 0 2px 0 var(--c); } }
+  .screenshot-frame-outer { position: relative; }
+  html.holiday .lights { display: flex; }
+  @media (max-width: 520px) { html.holiday .eyebrow-tail { display: none; } }
+  html.holiday .feature:hover { border-color: rgba(229,72,77,0.45); }
+  html.holiday .feature:nth-child(even):hover { border-color: rgba(63,185,80,0.45); }
+  /* Snow sits behind all content (z-index -1, above the page background only),
+     fades toward the bottom of the viewport, and fades out as you scroll past
+     the hero, so it never covers text, code or the demo. */
+  #snow {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: -1;
+    -webkit-mask-image: linear-gradient(#000 0%, #000 35%, transparent 75%);
+            mask-image: linear-gradient(#000 0%, #000 35%, transparent 75%);
+    transition: opacity .4s ease;
+  }
+  html.holiday #snow[hidden] { display: none; }
+  .fx-toggle {
+    position: absolute; top: 14px; right: 16px;
+    align-items: center; gap: 6px;
+    min-height: 32px; padding: 4px 12px;
+    font: 500 0.78rem/1 "Inter", system-ui, sans-serif;
+    color: var(--dim);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .fx-toggle:hover { color: var(--text); border-color: var(--border-hover); }
+  .fx-toggle[aria-pressed="true"] .fx-state::after { content: "on"; }
+  .fx-toggle[aria-pressed="false"] .fx-state::after { content: "off"; }
+  .fx-toggle .fx-state { color: var(--text); font-weight: 600; }
+  html.holiday .fx-toggle { display: inline-flex; }
+  /* Windows High Contrast / forced colors: drop purely decorative effects. */
+  @media (forced-colors: active) {
+    #snow, .lights, .santa-hat, .fx-toggle { display: none !important; }
+  }
+  @media print {
+    #snow, .lights, .fx-toggle { display: none !important; }
+  }
+  .holiday-note { color: var(--text); }
+
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     * { transition: none !important; }
+    .lights i, html.holiday .eyebrow .dot { animation: none; }
   }
 </style>
 </head>
 <body>
 
+<button type="button" class="fx-toggle holiday-only" id="fx-toggle" aria-pressed="false">
+  <span aria-hidden="true">❄</span> Snow <span class="fx-state" aria-hidden="true"></span>
+</button>
+
 <header class="hero">
-  <span class="eyebrow"><span class="dot"></span> Open source · Go + Bubble Tea</span>
-  <h1><span class="mono">$</span> lazydeck</h1>
+  <span class="eyebrow"><span class="dot"></span> <span class="holiday-only">Happy holidays ·</span> Open source<span class="eyebrow-tail"> · Go + Bubble Tea</span></span>
+  <h1><span class="mono prompt">$<svg class="santa-hat holiday-only" viewBox="0 0 64 56" aria-hidden="true"><path d="M8 44 C14 22 30 6 50 10 C56 12 58 22 56 30 C50 22 42 20 36 24 C30 30 32 40 34 44 Z" fill="#e5484d"/><path d="M36 24 C42 20 50 22 56 30" fill="none" stroke="#b9363a" stroke-width="2"/><rect x="2" y="40" width="40" height="12" rx="6" fill="#f4f1ea"/><circle cx="57" cy="32" r="6" fill="#f4f1ea"/></svg></span> lazydeck</h1>
   <p class="tagline">
-    A lazydocker-style terminal UI for managing a fleet of Steam devkits:
-    Steam Deck, Steam Machine, and anything else running the SteamOS devkit
-    tools. One keyboard-driven panel instead of clicking through Valve's GUI
-    once per device.
+    A lazydocker-style terminal UI for your whole Steam devkit fleet.
+    Pair, deploy, check status, and tail logs from one keyboard-driven panel.
   </p>
   <div class="cta-row">
     <a class="btn primary" href="https://github.com/KevinTCoughlin/lazydeck#installing-a-pre-built-release">Install</a>
@@ -291,12 +425,28 @@
 </header>
 
 <div class="screenshot-wrap">
+  <div class="screenshot-frame-outer">
+  <div class="lights holiday-only" aria-hidden="true"><i style="--i:0"></i><i style="--i:1"></i><i style="--i:2"></i><i style="--i:3"></i><i style="--i:4"></i><i style="--i:5"></i><i style="--i:6"></i><i style="--i:7"></i><i style="--i:8"></i><i style="--i:9"></i><i style="--i:10"></i><i style="--i:11"></i><i style="--i:12"></i><i style="--i:13"></i></div>
   <div class="screenshot-frame">
     <div class="screenshot-titlebar"><span></span><span></span><span></span></div>
-    <img src="assets/demo.gif" alt="lazydeck refreshing a three-devkit fleet, listing games on a Steam Deck and deploying a build" loading="lazy" width="1200" height="640">
+    <video autoplay loop muted playsinline preload="auto" width="2400" height="1280"
+           poster="assets/demo-poster.png"
+           aria-label="lazydeck refreshing a three-devkit fleet, listing games on a Steam Deck and deploying a build">
+      <source src="assets/demo.webm" type="video/webm">
+      <source src="assets/demo.mp4" type="video/mp4">
+      <img src="assets/demo.gif" alt="lazydeck refreshing a three-devkit fleet, listing games on a Steam Deck and deploying a build" width="1200" height="640">
+    </video>
+  </div>
   </div>
   <p class="screenshot-caption">The real lazydeck TUI refreshing a devkit fleet, listing games and deploying a build (recorded against a canned backend).</p>
 </div>
+
+<p class="intro">
+  Built for <strong>Steam Deck, Steam Machine, and anything else running the
+  SteamOS devkit tools</strong>. One terminal panel instead of clicking through
+  Valve's GUI once per device, and it works over SSH, in tmux, or on a headless
+  build box.
+</p>
 
 <section class="features">
   <div class="feature">
@@ -470,6 +620,7 @@ sha256sum --ignore-missing -c checksums.txt</code></pre>
 </section>
 
 <footer>
+  <p class="holiday-only holiday-note">❄ Happy holidays from lazydeck, and see you in <span id="ny-year"></span>.</p>
   lazydeck is an independent personal project, not affiliated with or endorsed by Valve.
   Steam and Steam Deck are trademarks of Valve Corporation.
   <br>
@@ -478,5 +629,87 @@ sha256sum --ignore-missing -c checksums.txt</code></pre>
   <a href="https://github.com/KevinTCoughlin/lazydeck/blob/main/SECURITY.md">Security</a>
 </footer>
 
+<canvas id="snow" class="holiday-only" aria-hidden="true"></canvas>
+<script>
+  (function () {
+    var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Respect reduced motion for the demo video too: show the poster frame.
+    if (reduce) document.querySelectorAll("video[autoplay]").forEach(function (v) { v.removeAttribute("autoplay"); v.pause(); v.controls = true; });
+
+    if (!document.documentElement.classList.contains("holiday")) return;
+    var now = new Date();
+    document.getElementById("ny-year").textContent = now.getMonth() === 0 ? now.getFullYear() : now.getFullYear() + 1;
+
+    // Snow: subtle, behind content, and off by default for anyone who has
+    // asked for less (reduced motion, more contrast, Save-Data). An explicit
+    // choice on the toggle wins and is remembered per browser.
+    var KEY = "lazydeck:snow";
+    var btn = document.getElementById("fx-toggle");
+    var c = document.getElementById("snow"), x = c.getContext("2d");
+    var mqMotion = matchMedia("(prefers-reduced-motion: reduce)");
+    var mqContrast = matchMedia("(prefers-contrast: more)");
+    var mqForced = matchMedia("(forced-colors: active)");
+    var saveData = !!(navigator.connection && navigator.connection.saveData);
+    function stored() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
+    function store(v) { try { localStorage.setItem(KEY, v); } catch (e) {} }
+    function wanted() {
+      if (mqForced.matches) return false;
+      var v = stored();
+      if (v === "on") return true;
+      if (v === "off") return false;
+      return !(mqMotion.matches || mqContrast.matches || saveData);
+    }
+
+    var flakes = [], w = 0, h = 0, raf = 0, last = 0, on = false;
+    function size() {
+      var dpr = Math.min(devicePixelRatio || 1, 2);
+      w = innerWidth; h = innerHeight;
+      c.width = w * dpr; c.height = h * dpr;
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var n = Math.round(Math.min(36, w / 32));
+      while (flakes.length < n) flakes.push({ x: Math.random() * w, y: Math.random() * h, r: 0.6 + Math.random() * 1.4, s: 0.15 + Math.random() * 0.45, d: Math.random() * 6.28, a: 0.25 + Math.random() * 0.3 });
+      flakes.length = n;
+    }
+    // Fade out over the first ~70% of a screen of scrolling; idle once gone.
+    function fade() { return Math.max(0, 1 - scrollY / (innerHeight * 0.7)); }
+    function tick(t) {
+      raf = 0;
+      if (!on || document.hidden) return;
+      var o = fade();
+      c.style.opacity = o;
+      var dt = Math.min(50, t - (last || t)) / 16.7; last = t;
+      if (o > 0) {
+        x.clearRect(0, 0, w, h);
+        for (var i = 0; i < flakes.length; i++) {
+          var f = flakes[i];
+          f.y += f.s * dt; f.d += 0.008 * dt; f.x += Math.sin(f.d) * 0.25 * dt;
+          if (f.y > h + 4) { f.y = -4; f.x = Math.random() * w; }
+          x.globalAlpha = f.a;
+          x.fillStyle = "#fff";
+          x.beginPath(); x.arc(f.x, f.y, f.r, 0, 6.283); x.fill();
+        }
+        raf = requestAnimationFrame(tick);
+      }
+    }
+    function wake() { if (on && !raf && !document.hidden && fade() > 0) { last = 0; raf = requestAnimationFrame(tick); } }
+    function apply(v) {
+      on = v;
+      btn.setAttribute("aria-pressed", String(v));
+      c.hidden = !v;
+      if (v) { size(); wake(); } else { if (raf) cancelAnimationFrame(raf); raf = 0; x.clearRect(0, 0, w, h); }
+    }
+
+    btn.addEventListener("click", function () {
+      var v = !on; store(v ? "on" : "off"); apply(v);
+    });
+    addEventListener("resize", function () { if (on) size(); });
+    addEventListener("scroll", wake, { passive: true });
+    document.addEventListener("visibilitychange", wake);
+    [mqMotion, mqContrast, mqForced].forEach(function (mq) {
+      if (mq.addEventListener) mq.addEventListener("change", function () { apply(wanted()); });
+    });
+    apply(wanted());
+  })();
+</script>
 </body>
 </html>
