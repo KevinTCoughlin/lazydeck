@@ -11,6 +11,13 @@ the last release are collected in the open `chore(main): release …` pull
 request rather than an Unreleased section here. Earlier entries follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.1](https://github.com/KevinTCoughlin/lazydeck/compare/v0.4.0...v0.4.1) (2026-11-09)
+
+
+### Fixed
+
+* build with Go 1.26.10 for net/http and crypto/x509 fixes ([#106](https://github.com/KevinTCoughlin/lazydeck/issues/106)) ([b454763](https://github.com/KevinTCoughlin/lazydeck/commit/b45476392d1a09a603f6f983dd7f1fa9d05b93f0))
+
 ## [0.4.0](https://github.com/KevinTCoughlin/lazydeck/compare/v0.3.0...v0.4.0) (2026-11-08)
 
 
