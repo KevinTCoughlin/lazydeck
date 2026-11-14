@@ -543,6 +543,18 @@ docker run -i --rm --network host \
   -v "$HOME/.config/steamos-devkit:/home/lazydeck/.config/steamos-devkit" \
   ghcr.io/kevintcoughlin/lazydeck:latest mcp</code></pre>
   <p style="color:var(--dim)">
+    On a Mac, Apple's <a href="https://github.com/apple/container">container</a> CLI
+    runs the same image natively on Apple silicon. Files the container writes to the
+    mounts stay owned by your Mac user, so skip the <code>chown</code>. There's no host networking,
+    so this suits the MCP server and CLI commands against devkits you've already added,
+    not LAN discovery.
+  </p>
+  <pre class="codeblock"><code>mkdir -p "$HOME/.config/lazydeck" "$HOME/.config/steamos-devkit" &&
+container run -i --rm \
+  -v "$HOME/.config/lazydeck:/home/lazydeck/.config/lazydeck" \
+  -v "$HOME/.config/steamos-devkit:/home/lazydeck/.config/steamos-devkit" \
+  ghcr.io/kevintcoughlin/lazydeck:latest mcp</code></pre>
+  <p style="color:var(--dim)">
     <code>checksums.txt</code> is signed with Sigstore keyless signing, and every
     release ships SBOMs and GitHub build provenance. Download the desired artifact,
     <code>checksums.txt</code>, and <code>checksums.txt.sigstore.json</code> from the
