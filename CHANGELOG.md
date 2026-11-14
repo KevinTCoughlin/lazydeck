@@ -11,6 +11,18 @@ the last release are collected in the open `chore(main): release …` pull
 request rather than an Unreleased section here. Earlier entries follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0](https://github.com/KevinTCoughlin/lazydeck/compare/v0.4.1...v0.5.0) (2026-11-14)
+
+
+### Added
+
+* default container-* recipes to Apple container on macOS ([#112](https://github.com/KevinTCoughlin/lazydeck/issues/112)) ([67c14b2](https://github.com/KevinTCoughlin/lazydeck/commit/67c14b28ff021afabfc206aab6cfa5dfa49405b6))
+
+
+### Fixed
+
+* build with Go 1.26.11 for security fixes ([#110](https://github.com/KevinTCoughlin/lazydeck/issues/110)) ([75e3cb1](https://github.com/KevinTCoughlin/lazydeck/commit/75e3cb1c9f68dfc2951737092806f1d63b8e2161))
+
 ## [0.4.1](https://github.com/KevinTCoughlin/lazydeck/compare/v0.4.0...v0.4.1) (2026-11-09)
 
 
