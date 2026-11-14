@@ -6,6 +6,11 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 python_dir := justfile_directory() / "python"
 bin := justfile_directory() / "lazydeck"
 
+# Container runtime for the container-* recipes: Apple's `container` CLI on
+# macOS, podman elsewhere. Override with CONTAINER_ENGINE=docker (etc.) or by
+# passing the ENGINE parameter, e.g. `just container-check docker`.
+ENGINE := env("CONTAINER_ENGINE", if os() == "macos" { "container" } else { "podman" })
+
 # List available recipes.
 default:
     @just --list
@@ -75,8 +80,9 @@ snapshot:
 # Build and run the reproducible checks inside a container. ENGINE selects
 # the container runtime (podman, docker, or Apple's `container` CLI on
 # macOS 26+); all three build/run plain OCI images from the same
-# Containerfile, so this recipe works unmodified across engines.
-container-check ENGINE="podman":
+# Containerfile, so this recipe works unmodified across engines. Defaults
+# to `container` on macOS and podman elsewhere (see ENGINE above).
+container-check ENGINE=ENGINE:
     {{ENGINE}} build --target ci --tag lazydeck-ci:test --file Containerfile .
     {{ENGINE}} run --rm lazydeck-ci:test
 
@@ -85,7 +91,7 @@ container-check ENGINE="podman":
 # Godot + export templates. Slower than container-check (a fresh Godot
 # download + editor import on first build), so it's kept as a separate
 # recipe/CI job rather than folded into container-check.
-container-godot ENGINE="podman":
+container-godot ENGINE=ENGINE:
     {{ENGINE}} build --target godot-integration --tag lazydeck-godot:test --file Containerfile .
     {{ENGINE}} run --rm lazydeck-godot:test
 
@@ -98,7 +104,7 @@ integration-godot: build
 
 # Build and run the reproducible test container (kept for backward
 # compatibility; equivalent to `just container-check`).
-container-test: (container-check "podman")
+container-test: (container-check ENGINE)
 
 # Run the headless python CLI directly, e.g.:
 #   just cli status --machine 192.168.1.50
