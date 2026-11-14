@@ -377,8 +377,13 @@ image — LazyDeck is an interactive, host-network terminal app, so there's no
 "lazydeck server" to ship as a container.
 
 ```bash
-just container-test
+just container-check   # or: just container-test
 ```
+
+On macOS the `container-*` recipes default to Apple's
+[`container`](https://github.com/apple/container) CLI; elsewhere they use
+podman. Set `CONTAINER_ENGINE=docker` (or pass the engine, e.g.
+`just container-check docker`) to override.
 
 ## Keybindings
 
