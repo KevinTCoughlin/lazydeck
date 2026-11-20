@@ -244,16 +244,25 @@ func TestRunFailureWithoutEnvelope(t *testing.T) {
 
 func TestRunEnvironment(t *testing.T) {
 	t.Run("defaults UV_PROJECT_ENVIRONMENT into the user cache", func(t *testing.T) {
-		cache := t.TempDir()
-		t.Setenv("XDG_CACHE_HOME", cache)
+		t.Setenv("XDG_CACHE_HOME", t.TempDir()) // honored on Linux; macOS uses ~/Library/Caches
 		t.Setenv("UV_PROJECT_ENVIRONMENT", "")
+		cache, err := os.UserCacheDir()
+		if err != nil {
+			t.Skipf("no user cache dir: %v", err)
+		}
 		f := newFakeUV(t, okNull, 0)
 		if err := f.client.Register(context.Background(), "d"); err != nil {
 			t.Fatal(err)
 		}
 		lines := readLines(t, f.envFile)
-		if lines[0] != f.client.PythonDir {
-			t.Errorf("working dir = %q, want %q", lines[0], f.client.PythonDir)
+		// $PWD is the resolved path (macOS temp dirs live under the
+		// /var -> /private/var symlink), so compare resolved paths.
+		wantDir, err := filepath.EvalSymlinks(f.client.PythonDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gotDir, _ := filepath.EvalSymlinks(lines[0]); gotDir != wantDir {
+			t.Errorf("working dir = %q, want %q", lines[0], wantDir)
 		}
 		if want := filepath.Join(cache, "lazydeck", "python"); lines[1] != want {
 			t.Errorf("UV_PROJECT_ENVIRONMENT = %q, want %q", lines[1], want)
