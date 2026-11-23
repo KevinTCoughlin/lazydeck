@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly UV_VERSION="${UV_VERSION:-0.12.5}"
+readonly UV_VERSION="${UV_VERSION:-0.13.9}"
 readonly BASE_URL="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly ROOT

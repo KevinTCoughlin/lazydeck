@@ -31,7 +31,7 @@ Bundled Python components (python/vendor/)
             license text ship together at the paths above; recipients may
             modify or replace those files under the terms of the LGPL.
 
-3. uv (Debian package only), version 0.12.5
+3. uv (Debian package only), version 0.13.9
    Copyright (c) 2023-present Astral Software Inc.
    License: Apache License 2.0 or MIT
    Paths:   /usr/share/doc/lazydeck/LICENSE-uv-APACHE
