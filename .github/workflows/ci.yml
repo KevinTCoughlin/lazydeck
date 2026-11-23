@@ -28,13 +28,13 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.11"
+          go-version: "1.27.4"
       # go test ./... exercises internal/tui, whose client.New shells out
       # to uv to run the bundled Python bridge -- uv must be on PATH even
       # though this job has no `run: uv ...` step of its own.
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.12.5"
+          version: "0.13.9"
       - name: Verify formatting
         run: |
           unformatted="$(gofmt -l .)"
@@ -90,10 +90,10 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.11"
+          go-version: "1.27.4"
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.12.2
+          version: v2.15.0
 
   python:
     name: Python (${{ matrix.os }})
@@ -111,7 +111,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.12.5"
+          version: "0.13.9"
           enable-cache: true
           cache-dependency-glob: "python/uv.lock"
       - name: Install from lockfile (frozen)
@@ -133,10 +133,10 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.11"
+          go-version: "1.27.4"
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.12.5"
+          version: "0.13.9"
           enable-cache: true
           cache-dependency-glob: "python/uv.lock"
       - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3

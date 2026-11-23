@@ -40,7 +40,7 @@ the CLI with one panel per configured device.
 
 ## Requirements
 
-- Go 1.25+
+- Go 1.26+
 - [`uv`](https://docs.astral.sh/uv/) (manages the Python 3.10+ venv/deps for you;
   first run needs network access to fetch them)
 - [`just`](https://github.com/casey/just) task runner
