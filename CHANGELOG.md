@@ -11,6 +11,13 @@ the last release are collected in the open `chore(main): release …` pull
 request rather than an Unreleased section here. Earlier entries follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1](https://github.com/KevinTCoughlin/lazydeck/compare/v0.5.0...v0.5.1) (2026-11-23)
+
+
+### Dependencies
+
+* bump library/debian from `99c0b25` to `734a72b` in /packaging/container in the docker group ([#115](https://github.com/KevinTCoughlin/lazydeck/issues/115)) [skip ci] ([dfb6422](https://github.com/KevinTCoughlin/lazydeck/commit/dfb64220011c2fa73184f9e23e041bc4532e4f8d))
+
 ## [0.5.0](https://github.com/KevinTCoughlin/lazydeck/compare/v0.4.1...v0.5.0) (2026-11-14)
 
 
