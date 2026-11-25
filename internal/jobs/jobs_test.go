@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -331,5 +332,111 @@ func TestSetOnCompleteCalledWithFinalSnapshot(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("onComplete was not called within 1s")
+	}
+}
+
+func TestRunPanicFinishesAndReleasesTheDevice(t *testing.T) {
+	m := NewManager(1)
+	got := make(chan Snapshot, 1)
+	m.SetOnComplete(func(snap Snapshot) { got <- snap })
+
+	job, err := m.Submit("deck-1", "deploy", func(ctx context.Context, report func(string)) error {
+		panic("boom secret")
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	snap := waitTerminal(t, job, time.Second)
+	if snap.Status != Failed {
+		t.Fatalf("status = %s, want failed", snap.Status)
+	}
+	if snap.Error == nil || snap.Error.Kind != "internal" {
+		t.Fatalf("error = %#v, want kind internal", snap.Error)
+	}
+	if strings.Contains(snap.Error.Message, "boom") || strings.Contains(snap.Error.Message, "secret") {
+		t.Fatalf("panic text leaked into the job error: %q", snap.Error.Message)
+	}
+
+	select {
+	case completed := <-got:
+		if completed.Status != Failed || completed.ID != job.ID {
+			t.Fatalf("onComplete = %#v, want the panicked job failed", completed)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("onComplete was not called after the panic")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		next, err := m.Submit("deck-1", "deploy", func(ctx context.Context, report func(string)) error { return nil })
+		if err == nil {
+			waitTerminal(t, next, time.Second)
+			return
+		}
+		if !errors.Is(err, ErrDeviceBusy) || time.Now().After(deadline) {
+			t.Fatalf("device stayed busy after panic: %v", err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestPruneOnFinishDropsTerminalJobsWithoutAnotherSubmit(t *testing.T) {
+	total := maxRetainedJobs + 3
+	m := NewManager(total)
+	release := make(chan struct{})
+	started := make(chan struct{}, total)
+	ids := make([]string, 0, total)
+	for i := 0; i < total; i++ {
+		job, err := m.Submit(fmt.Sprintf("dev-%d", i), "deploy", func(ctx context.Context, report func(string)) error {
+			started <- struct{}{}
+			<-release
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("Submit %d: %v", i, err)
+		}
+		ids = append(ids, job.ID)
+	}
+	for i := 0; i < total; i++ {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("only %d of %d jobs started", i, total)
+		}
+	}
+	for _, id := range ids {
+		if _, err := m.Get(id); err != nil {
+			t.Fatalf("in-flight job %s was dropped before it finished: %v", id, err)
+		}
+	}
+
+	close(release)
+
+	deadline := time.Now().Add(2 * time.Second)
+	var retained int
+	for {
+		retained = 0
+		pending := 0
+		for _, id := range ids {
+			job, err := m.Get(id)
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !job.Snapshot().Status.terminal() {
+				pending++
+				continue
+			}
+			retained++
+		}
+		if pending == 0 && retained == maxRetainedJobs {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("after finish, retained %d terminal jobs and %d still running; cap is %d", retained, pending, maxRetainedJobs)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -129,7 +130,23 @@ type Model struct {
 	// opCounter hands out monotonically increasing operation ids so each
 	// started device operation is uniquely identifiable (see deviceState.opID).
 	opCounter uint64
+
+	// gate is shared by every Model copy Bubble Tea makes. Cancelling it
+	// stops in-flight uv/python/ssh and custom-command process groups.
+	gate *commandGate
 }
+
+// commandGate tracks device commands that spawn a process. Spinner and
+// auto-refresh ticks are not included; Shutdown would otherwise wait on a timer.
+type commandGate struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+}
+
+// commandShutdownBudget outlasts the client's 10s WaitDelay after SIGKILL,
+// so a descendant holding a pipe open is reaped before the process exits.
+const commandShutdownBudget = 15 * time.Second
 
 var reservedKeys = map[string]bool{
 	"ctrl+c": true, "q": true, "esc": true,
@@ -196,6 +213,7 @@ func NewWithUserConfig(cli *client.Client, cfg *config.Config, path string, user
 	if info, ok := cfg.SharedRegistry(); ok {
 		startupLog = append(startupLog, info.Summary())
 	}
+	cmdCtx, cmdCancel := context.WithCancel(context.Background())
 	return Model{
 		cli:             cli,
 		devices:         devices,
@@ -209,6 +227,51 @@ func NewWithUserConfig(cli *client.Client, cfg *config.Config, path string, user
 		customCmds:      customCmds,
 		customCmdIndex:  customCmdIndex,
 		log:             startupLog,
+		gate:            &commandGate{ctx: cmdCtx, cancel: cmdCancel},
+	}
+}
+
+func (m Model) commandContext() context.Context {
+	if m.gate == nil {
+		return context.Background()
+	}
+	return m.gate.ctx
+}
+
+// track counts cmd so Shutdown can wait for it. Add happens before the
+// command is handed to Bubble Tea; Done runs when the command returns,
+// including when the process group has been killed.
+func (m Model) track(cmd tea.Cmd) tea.Cmd {
+	if cmd == nil || m.gate == nil {
+		return cmd
+	}
+	m.gate.wg.Add(1)
+	return func() tea.Msg {
+		defer m.gate.wg.Done()
+		return cmd()
+	}
+}
+
+// Shutdown cancels in-flight device commands and waits for them to exit.
+// Call it after the Bubble Tea program returns: quit does not join those
+// goroutines, and their children are in a separate process group, so they
+// would otherwise keep running (uv, python, ssh, rsync, custom commands).
+func (m Model) Shutdown() {
+	if m.gate == nil {
+		return
+	}
+	m.gate.cancel()
+	done := make(chan struct{})
+	go func() {
+		m.gate.wg.Wait()
+		close(done)
+	}()
+	timer := time.NewTimer(commandShutdownBudget)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		log.Printf("lazydeck: timed out waiting for device commands to exit")
 	}
 }
 
@@ -242,9 +305,9 @@ type statusResultMsg struct {
 	err   error
 }
 
-func refreshOneCmd(cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
+func refreshOneCmd(parent context.Context, cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 		defer cancel()
 		st, err := cli.Status(ctx, dev.Machine, dev.Login)
 		if err != nil {
@@ -268,27 +331,27 @@ type actionDoneMsg struct {
 	err    error
 }
 
-func registerCmd(cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
+func registerCmd(parent context.Context, cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 		defer cancel()
 		err := cli.Register(ctx, dev.Machine)
 		return actionDoneMsg{index: index, opID: opID, action: "register", err: err}
 	}
 }
 
-func deployCmd(cli *client.Client, index int, opID uint64, dev config.Device, name, dir string) tea.Cmd {
+func deployCmd(parent context.Context, cli *client.Client, index int, opID uint64, dev config.Device, name, dir string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 		defer cancel()
 		err := cli.Deploy(ctx, dev.Machine, dev.Login, name, dir, false, nil)
 		return actionDoneMsg{index: index, opID: opID, action: fmt.Sprintf("deploy %s", name), err: err}
 	}
 }
 
-func syncLogsCmd(cli *client.Client, index int, opID uint64, dev config.Device, name, dir string) tea.Cmd {
+func syncLogsCmd(parent context.Context, cli *client.Client, index int, opID uint64, dev config.Device, name, dir string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 		defer cancel()
 		err := cli.SyncLogs(ctx, dev.Machine, dev.Login, name, dir)
 		return actionDoneMsg{index: index, opID: opID, action: fmt.Sprintf("sync-logs %s", name), err: err}
@@ -306,9 +369,9 @@ func deleteCommandPreview(cli *client.Client, dev config.Device, name string) st
 	return cli.Preview(args...)
 }
 
-func deleteCmd(cli *client.Client, index int, opID uint64, dev config.Device, name string) tea.Cmd {
+func deleteCmd(parent context.Context, cli *client.Client, index int, opID uint64, dev config.Device, name string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 		defer cancel()
 		err := cli.Delete(ctx, dev.Machine, dev.Login, name)
 		return actionDoneMsg{index: index, opID: opID, action: fmt.Sprintf("delete %s", name), err: err}
@@ -322,9 +385,9 @@ type listGamesResultMsg struct {
 	err   error
 }
 
-func listGamesCmd(cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
+func listGamesCmd(parent context.Context, cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 		defer cancel()
 		games, err := cli.ListGames(ctx, dev.Machine, dev.Login)
 		return listGamesResultMsg{index: index, opID: opID, games: games, err: err}
@@ -337,9 +400,9 @@ type discoverResultMsg struct {
 	forWizard bool
 }
 
-func discoverCmd(cli *client.Client, forWizard bool) tea.Cmd {
+func discoverCmd(parent context.Context, cli *client.Client, forWizard bool) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 		defer cancel()
 		found, err := cli.Discover(ctx, 4*time.Second)
 		return discoverResultMsg{found: found, err: err, forWizard: forWizard}
@@ -355,9 +418,9 @@ type connInfoMsg struct {
 	err   error
 }
 
-func connectionInfoCmd(cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
+func connectionInfoCmd(parent context.Context, cli *client.Client, index int, opID uint64, dev config.Device) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 		defer cancel()
 		info, err := cli.ConnectionInfo(ctx, dev.Machine, dev.Login)
 		return connInfoMsg{index: index, opID: opID, info: info, err: err}
@@ -400,13 +463,13 @@ func (b *tailBuffer) String() string {
 	return string(b.data)
 }
 
-func customCommandCmd(index int, opID uint64, dev config.Device, custom config.CustomCommand) tea.Cmd {
+func customCommandCmd(parent context.Context, index int, opID uint64, dev config.Device, custom config.CustomCommand) tea.Cmd {
 	return func() tea.Msg {
 		expanded, err := custom.Expand(dev)
 		if err != nil {
 			return customCmdDoneMsg{index: index, opID: opID, name: custom.Name, err: err}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, "sh", "-c", expanded, "lazydeck", dev.Name, dev.Machine, dev.Login)
 		cmd.Env = os.Environ()
@@ -500,7 +563,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Re-check status after a successful action, as a fresh op so it
 		// can't be confused with the action that just finished.
 		if id, ok := m.beginOp(msg.index); ok {
-			return m, refreshOneCmd(m.cli, msg.index, id, m.devices[msg.index].dev)
+			return m, m.track(refreshOneCmd(m.commandContext(), m.cli, msg.index, id, m.devices[msg.index].dev))
 		}
 		return m, nil
 
@@ -607,6 +670,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q":
+		if m.gate != nil {
+			m.gate.cancel()
+		}
 		return m, tea.Quit
 	case "esc":
 		if m.filterQuery != "" {
@@ -644,7 +710,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.log = append(m.log, fmt.Sprintf("registering %s ...", m.devices[i].dev.Name))
-		return m, registerCmd(m.cli, i, id, m.devices[i].dev)
+		return m, m.track(registerCmd(m.commandContext(), m.cli, i, id, m.devices[i].dev))
 	case " ":
 		i := m.selectedDeviceIndex()
 		if i < 0 {
@@ -684,14 +750,14 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.log = append(m.log, fmt.Sprintf("listing games on %s ...", m.devices[i].dev.Name))
-		return m, listGamesCmd(m.cli, i, id, m.devices[i].dev)
+		return m, m.track(listGamesCmd(m.commandContext(), m.cli, i, id, m.devices[i].dev))
 	case "f":
 		m.log = append(m.log, "discovering devkits on the LAN (mDNS, ~4s)...")
-		return m, discoverCmd(m.cli, false)
+		return m, m.track(discoverCmd(m.commandContext(), m.cli, false))
 	case "a":
 		m.mode = modeWizard
 		m.wizard = wizardState{loading: true}
-		return m, discoverCmd(m.cli, true)
+		return m, m.track(discoverCmd(m.commandContext(), m.cli, true))
 	case "?":
 		m.mode = modeHelp
 	case "enter":
@@ -705,7 +771,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.log = append(m.log, fmt.Sprintf("opening remote shell to %s ...", m.devices[i].dev.Name))
-		return m, connectionInfoCmd(m.cli, i, id, m.devices[i].dev)
+		return m, m.track(connectionInfoCmd(m.commandContext(), m.cli, i, id, m.devices[i].dev))
 	default:
 		if command, ok := m.customCmdIndex[msg.String()]; ok {
 			return m.runCustomCommand(command)
@@ -724,7 +790,7 @@ func (m Model) runCustomCommand(command config.CustomCommand) (tea.Model, tea.Cm
 		}
 		device := m.devices[i]
 		m.log = append(m.log, fmt.Sprintf("running %q on %s ...", command.Name, device.dev.Name))
-		cmds = append(cmds, customCommandCmd(i, id, device.dev, command))
+		cmds = append(cmds, m.track(customCommandCmd(m.commandContext(), i, id, device.dev, command)))
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -843,7 +909,7 @@ func (m *Model) beginRefresh() tea.Cmd {
 		if !ok {
 			continue
 		}
-		cmds = append(cmds, refreshOneCmd(m.cli, i, id, m.devices[i].dev))
+		cmds = append(cmds, m.track(refreshOneCmd(m.commandContext(), m.cli, i, id, m.devices[i].dev)))
 	}
 	return tea.Batch(cmds...)
 }
@@ -979,7 +1045,7 @@ func (m Model) advancePrompt(value string) (tea.Model, tea.Cmd) {
 				continue
 			}
 			m.log = append(m.log, fmt.Sprintf("deploying %s (%s) to %s ...", m.pendingName, value, m.devices[i].dev.Name))
-			cmds = append(cmds, deployCmd(m.cli, i, id, m.devices[i].dev, m.pendingName, value))
+			cmds = append(cmds, m.track(deployCmd(m.commandContext(), m.cli, i, id, m.devices[i].dev, m.pendingName, value)))
 		}
 		m.selected = make(map[int]bool)
 		return m, tea.Batch(cmds...)
@@ -997,7 +1063,7 @@ func (m Model) advancePrompt(value string) (tea.Model, tea.Cmd) {
 				continue
 			}
 			m.log = append(m.log, fmt.Sprintf("syncing logs for %s from %s ...", m.pendingName, m.devices[i].dev.Name))
-			cmds = append(cmds, syncLogsCmd(m.cli, i, id, m.devices[i].dev, m.pendingName, value))
+			cmds = append(cmds, m.track(syncLogsCmd(m.commandContext(), m.cli, i, id, m.devices[i].dev, m.pendingName, value)))
 		}
 		m.selected = make(map[int]bool)
 		return m, tea.Batch(cmds...)
@@ -1032,7 +1098,7 @@ func (m Model) updateDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		d := m.devices[i]
 		m.log = append(m.log, fmt.Sprintf("deleting %s from %s (%s) ...", m.pendingName, d.dev.Name, deleteCommandPreview(m.cli, d.dev, m.pendingName)))
-		cmds = append(cmds, deleteCmd(m.cli, i, id, d.dev, m.pendingName))
+		cmds = append(cmds, m.track(deleteCmd(m.commandContext(), m.cli, i, id, d.dev, m.pendingName)))
 	}
 	m.selected = make(map[int]bool)
 	return m, tea.Batch(cmds...)
@@ -1083,7 +1149,7 @@ func (m Model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNormal
 		m.log = append(m.log, fmt.Sprintf("added %q (%s) — registering ...", dev.Name, dev.Machine))
 		id, _ := m.beginOp(m.cursor)
-		return m, registerCmd(m.cli, m.cursor, id, dev)
+		return m, m.track(registerCmd(m.commandContext(), m.cli, m.cursor, id, dev))
 	}
 	return m, nil
 }

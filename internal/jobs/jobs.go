@@ -287,7 +287,10 @@ func (m *Manager) SubmitAs(actor, deviceID, operation string, run Run) (*Job, er
 }
 
 // pruneLocked evicts the oldest terminal jobs once more than
-// maxRetainedJobs are retained. Must be called with m.mu held.
+// maxRetainedJobs are retained. Submit calls it, and so does finish: jobs
+// that are still queued or running cannot be evicted, so a burst past the
+// cap stays until those jobs complete. finish prunes then, with no later
+// Submit required. Must be called with m.mu held.
 func (m *Manager) pruneLocked() {
 	toRemove := len(m.jobOrder) - maxRetainedJobs
 	if toRemove <= 0 {
@@ -310,6 +313,20 @@ func (m *Manager) pruneLocked() {
 func (m *Manager) execute(ctx context.Context, job *Job, run Run) {
 	defer m.wg.Done()
 	defer m.releaseDevice(job.DeviceID)
+	// A panic in run used to skip finish, leaving the job running forever
+	// (never pruned, SSE subscribers waiting) while releaseDevice still
+	// dropped the device lock. finish is the only path to a terminal state.
+	defer func() {
+		rec := recover()
+		if rec == nil {
+			return
+		}
+		log.Printf("lazydeck: job %s panicked: %v", job.ID, rec)
+		m.finish(job, Failed, "failed", &Error{
+			Kind:    "internal",
+			Message: "the devkit operation failed unexpectedly; see the lazydeck serve process log for details",
+		})
+	}()
 
 	select {
 	case m.sem <- struct{}{}:
@@ -357,6 +374,7 @@ func (m *Manager) finish(job *Job, status Status, message string, jobErr *Error)
 
 	m.mu.Lock()
 	onComplete := m.onComplete
+	m.pruneLocked()
 	m.mu.Unlock()
 	if onComplete == nil {
 		return
