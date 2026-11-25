@@ -74,7 +74,7 @@ func TestRunShutdownWaitsForInFlightJobWithEventStreamOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusAccepted {
 		msg, _ := io.ReadAll(resp.Body)
 		t.Fatalf("deploy status = %d, body %s", resp.StatusCode, msg)
@@ -127,7 +127,7 @@ func TestRunShutdownWaitsForInFlightJobWithEventStreamOpen(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("job event stream did not connect")
 	}
-	defer eventsResp.Body.Close()
+	defer func() { _ = eventsResp.Body.Close() }()
 	if eventsResp.StatusCode != http.StatusOK {
 		t.Fatalf("events status = %d, want 200", eventsResp.StatusCode)
 	}
