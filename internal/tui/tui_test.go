@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -533,7 +534,7 @@ func TestCustomCommandOutputIsBounded(t *testing.T) {
 	command := config.CustomCommand{
 		Key: "p", Name: "verbose", Command: "yes x | head -c 10000",
 	}
-	done := customCommandCmd(0, 1, config.Device{}, command)().(customCmdDoneMsg)
+	done := customCommandCmd(context.Background(), 0, 1, config.Device{}, command)().(customCmdDoneMsg)
 	if done.err != nil {
 		t.Fatalf("custom command failed: %v", done.err)
 	}

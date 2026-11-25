@@ -234,6 +234,9 @@ func run() error {
 	m := tui.NewWithUserConfig(cli, cfg, path, userCfg)
 	p := tea.NewProgram(m, tea.WithMouseCellMotion())
 	_, err = p.Run()
+	// Bubble Tea returns without joining command goroutines. Cancel any
+	// still in flight and wait until their process groups exit.
+	m.Shutdown()
 	return err
 }
 
