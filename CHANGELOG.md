@@ -11,6 +11,14 @@ the last release are collected in the open `chore(main): release …` pull
 request rather than an Unreleased section here. Earlier entries follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.2](https://github.com/KevinTCoughlin/lazydeck/compare/v0.5.1...v0.5.2) (2026-11-25)
+
+
+### Fixed
+
+* cancel in-flight device commands on quit and prune finished jobs ([#126](https://github.com/KevinTCoughlin/lazydeck/issues/126)) ([c8a1fab](https://github.com/KevinTCoughlin/lazydeck/commit/c8a1fab2c3257681ad5ecf9b1c63cc24bdd8bb6e))
+* **server:** reap in-flight jobs when shutdown meets an open event stream ([#125](https://github.com/KevinTCoughlin/lazydeck/issues/125)) ([408c5ca](https://github.com/KevinTCoughlin/lazydeck/commit/408c5cacdb8df8292426b45cd9ba5312a3ee3606))
+
 ## [0.5.1](https://github.com/KevinTCoughlin/lazydeck/compare/v0.5.0...v0.5.1) (2026-11-23)
 
 
