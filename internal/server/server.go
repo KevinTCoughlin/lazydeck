@@ -63,10 +63,12 @@ const APIVersion = "v1"
 // user-configurable — revisit if fleets large enough to need tuning show up.
 const maxConcurrentJobs = 4
 
-// shutdownBudget bounds how long Run waits, in total, for the HTTP server's
-// graceful shutdown and then for in-flight jobs to actually cancel their
-// SSH/rsync subprocess (see internal/client/process_unix.go's own 10s
-// WaitDelay backstop) before Run returns anyway.
+// shutdownBudget is the deadline for one phase of shutdown. HTTP drain and
+// in-flight job reap each get their own budget. A single shared clock let a
+// handler that did not return (an open GET /v1/jobs/{id}/events stream)
+// expire the deadline before jobs.Shutdown waited, so execute was still
+// inside cmd.Run when the process exited. The uv/python/ssh/rsync children
+// are in their own process group and would keep running.
 const shutdownBudget = 30 * time.Second
 
 // Server holds the dependencies HTTP handlers need: the existing Python
@@ -451,9 +453,15 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config, opts Options
 	if opts.APIKeysPath != "" {
 		apiServer.keys = apikey.NewStore(opts.APIKeysPath)
 	}
+	// Parent every request context on the serve context.
+	// http.Server.Shutdown does not cancel handlers; it only waits for them
+	// to return. Job SSE streams block in that wait until the request
+	// context ends, so without this they hold Shutdown until the deadline.
+	requestBase := func(net.Listener) context.Context { return ctx }
 	loopbackSrv := &http.Server{
 		Handler:           apiServer.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext:       requestBase,
 	}
 	servers := []*http.Server{loopbackSrv}
 	serveErr := make(chan error, 2)
@@ -462,6 +470,7 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config, opts Options
 		netSrv := &http.Server{
 			Handler:           apiServer.NetworkHandler(),
 			ReadHeaderTimeout: 10 * time.Second,
+			BaseContext:       requestBase,
 		}
 		servers = append(servers, netSrv)
 		go func() { serveErr <- netSrv.Serve(netListener) }()
@@ -477,17 +486,21 @@ func Run(ctx context.Context, cli devkitClient, cfg *config.Config, opts Options
 		}
 		return nil
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownBudget)
-		defer cancel()
+		// Drain HTTP first so a handler still inside Submit finishes
+		// publishing its job before jobs.Shutdown waits. This deadline is
+		// not reused below: a handler that ignores cancellation can consume
+		// all of it, and jobs.Shutdown on an already-expired context cancels
+		// the job and returns without waiting for the subprocess.
+		httpCtx, httpCancel := context.WithTimeout(context.Background(), shutdownBudget)
+		defer httpCancel()
 		for _, srv := range servers {
-			if err := srv.Shutdown(shutdownCtx); err != nil {
+			if err := srv.Shutdown(httpCtx); err != nil {
 				log.Printf("lazydeck serve: graceful HTTP shutdown failed: %v", err)
 			}
 		}
-		// Cancel and wait for in-flight jobs even if HTTP shutdown above
-		// didn't finish cleanly: otherwise a deploy's rsync/ssh could keep
-		// running detached after this process has already returned/exited.
-		if err := apiServer.jobs.Shutdown(shutdownCtx); err != nil {
+		jobCtx, jobCancel := context.WithTimeout(context.Background(), shutdownBudget)
+		defer jobCancel()
+		if err := apiServer.jobs.Shutdown(jobCtx); err != nil {
 			log.Printf("lazydeck serve: in-flight job(s) did not finish before shutdown timed out: %v", err)
 			return err
 		}
