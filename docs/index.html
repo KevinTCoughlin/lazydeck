@@ -102,6 +102,7 @@
   a:hover { color: #ff8533; text-decoration: underline; }
   code, .mono { font-family: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
   header.hero {
     max-width: 980px;
@@ -424,6 +425,7 @@
   </div>
 </header>
 
+<main>
 <div class="screenshot-wrap">
   <div class="screenshot-frame-outer">
   <div class="lights holiday-only" aria-hidden="true"><i style="--i:0"></i><i style="--i:1"></i><i style="--i:2"></i><i style="--i:3"></i><i style="--i:4"></i><i style="--i:5"></i><i style="--i:6"></i><i style="--i:7"></i><i style="--i:8"></i><i style="--i:9"></i><i style="--i:10"></i><i style="--i:11"></i><i style="--i:12"></i><i style="--i:13"></i></div>
@@ -448,7 +450,8 @@
   build box.
 </p>
 
-<section class="features">
+<section class="features" aria-labelledby="features-title">
+  <h2 class="sr-only" id="features-title">Features</h2>
   <div class="feature">
     <h3>One panel per devkit</h3>
     <p>Your whole fleet in one view. Multi-select devices with <code>space</code> and batch a deploy, log sync, or delete across all of them at once.</p>
@@ -463,7 +466,7 @@
   </div>
   <div class="feature">
     <h3>Headless-first</h3>
-    <p>A local <code>lazydeck serve</code> API (versioned, loopback by default, HTTP+SSE) exposes every operation for scripting and for game-engine editor plugins. The TUI is just one client.</p>
+    <p>A local <code>lazydeck serve</code> API (versioned, loopback by default, HTTP+SSE) exposes every operation for scripting and for game-engine editor plugins. The TUI is just one client. Scoped API keys with an audit log cover CI, and an opt-in <code>--listen</code> shares one server across a trusted lab network.</p>
   </div>
   <div class="feature">
     <h3>No display required</h3>
@@ -630,6 +633,7 @@ sha256sum --ignore-missing -c checksums.txt</code></pre>
     <tr><td class="mono">q</td><td>quit</td></tr>
   </table>
 </section>
+</main>
 
 <footer>
   <p class="holiday-only holiday-note">❄ Happy holidays from lazydeck, and see you in <span id="ny-year"></span>.</p>
